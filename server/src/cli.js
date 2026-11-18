@@ -120,6 +120,6 @@ switch (command) {
   }
   default:
     console.log('commands: init | info | invite | rotate | kick | ports | reseed | status | prune');
-    console.log(`peers: ${cfg.peers.map((peer) => publicPeer(peer)).filter((peer) => !peer.revoked).length}`);
+    console.log(`peers: ${cfg.peers.filter((peer) => !peer.revoked).length}`);
     process.exit(command === 'help' ? 0 : 1);
 }

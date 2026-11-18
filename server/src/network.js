@@ -117,6 +117,25 @@ export function touchPeer(peer) {
   peer.lastSeen = nowIso();
 }
 
+/** LAN worlds live in an ephemeral port; null means "world is closed". */
+export function isValidLanPort(value) {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 1024 && port < 65536;
+}
+
+export function setLanPort(peer, value) {
+  if (value === null || value === undefined || value === '') {
+    if (peer.lanPort) {
+      peer.lanPort = null;
+      peer.lanSeen = null;
+    }
+    return;
+  }
+  if (!isValidLanPort(value)) return;
+  peer.lanPort = Number(value);
+  peer.lanSeen = nowIso();
+}
+
 export function revokePeer(cfg, peerId) {
   const peer = cfg.peers.find((item) => item.id === peerId);
   if (!peer) return null;
@@ -146,6 +165,7 @@ export function publicPeer(peer, live = null) {
     rx: live?.rx ?? null,
     tx: live?.tx ?? null,
     endpoint: live?.endpoint || null,
+    lanPort: peer.lanPort || null,
   };
 }
 

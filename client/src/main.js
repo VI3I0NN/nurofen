@@ -22,6 +22,7 @@ import {
 } from './api.js';
 import { helperAlive, ping, tunnelDown, tunnelStatus, tunnelUp } from './tunnel.js';
 import { detectLanPort } from './minecraft.js';
+import { minecraftInstalled, upsertServer } from './servers.js';
 import { startHelper } from './helper.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -236,12 +237,7 @@ async function refreshPeers() {
   const p = profile();
   if (!joined(p)) return;
   try {
-    let data;
-    try {
-      data = await fetchState(p);
-    } catch {
-      data = await heartbeat(p);
-    }
+    const data = await heartbeat(p, { lanPort: ui.minecraft?.port ?? null });
     if (data?.peers) ui.peers = data.peers;
   } catch (error) {
     if (ui.status === 'connected') pushLog('warn', `связь с сервером: ${error.message}`);
@@ -359,6 +355,7 @@ function snapshot() {
     peers: ui.peers,
     pings: ui.pings,
     minecraft: ui.minecraft,
+    minecraftInstalled: minecraftInstalled(),
     helper: ui.helper,
     awg: Boolean(findAwg()),
     connectedAt: ui.connectedAt,
@@ -432,8 +429,15 @@ const server = http.createServer(async (req, res) => {
           openWindow();
           json(res, 200, { ok: true });
           return;
-        case '/api/export-device': {
-          const p = profile();
+        case '/api/minecraft/add': {
+          const address = String(body.ip || '').trim();
+          if (!/^\d{1,3}(\.\d{1,3}){3}:\d{2,5}$/.test(address)) throw new Error('bad_address');
+          const result = upsertServer({ name: body.name, ip: address });
+          pushLog('ok', `мир добавлен в список серверов: ${result.name}`);
+          json(res, 200, result);
+          return;
+        }
+        case '/api/export-device': {          const p = profile();
           if (!p.invite || !joined(p)) throw new Error('no_network');
           const pair = keypair();
           const deviceName = String(body.name || `${p.deviceName}-phone`).slice(0, 32).trim();

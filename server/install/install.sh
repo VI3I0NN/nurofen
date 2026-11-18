@@ -53,7 +53,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # ---------------------------------------------------------------- base packages
 log "installing base packages"
-apt-get update -qq
+apt-get update -qq || warn "apt-get update reported errors (broken third-party repo?), continuing"
 apt-get install -y -qq curl ca-certificates gnupg lsb-release iproute2 iptables \
   software-properties-common dkms build-essential "linux-headers-$(uname -r)" \
   libmnl-dev libelf-dev pkg-config git >/dev/null

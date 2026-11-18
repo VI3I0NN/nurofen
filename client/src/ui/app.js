@@ -59,7 +59,11 @@ function render() {
   else if (state.status === 'connecting') pill.classList.add('busy');
   else if (state.status === 'error') pill.classList.add('err');
   $('statusText').textContent = statusLabel(state.status);
-  if (joined) $('netName').textContent = state.profile.network?.name || 'виртуальная локальная сеть';
+  if (joined) {
+    const name = state.profile.network?.name || '';
+    const subnet = state.profile.network?.subnet || '';
+    $('netName').textContent = subnet ? `${name} · ${subnet}` : name;
+  }
 
   const toggle = $('toggle');
   toggle.setAttribute('aria-pressed', state.status === 'connected' ? 'true' : 'false');
@@ -128,12 +132,17 @@ function renderPeers() {
       const ping = state.pings?.[peer.ip];
       const pingClass = ping == null ? '' : ping < 60 ? 'good' : ping > 200 ? 'bad' : '';
       const pingText = peer.self ? 'вы' : online ? (ping == null ? '—' : `${ping} мс`) : 'офлайн';
+      const address = peer.lanPort ? `${peer.ip}:${peer.lanPort}` : null;
+      const canJoin = !peer.self && online && address;
       return `
         <div class="peer ${online ? 'online' : ''}">
           <span class="dot"></span>
-          <span class="name">${escapeHtml(peer.name)}${peer.self ? '<span class="self-tag">это вы</span>' : ''}</span>
+          <span class="name">${escapeHtml(peer.name)}${peer.self ? '<span class="self-tag">это вы</span>' : ''}${
+            address && !peer.self ? '<span class="self-tag world">мир открыт</span>' : ''
+          }</span>
           <span class="ip">${escapeHtml(peer.ip)}</span>
           <span class="ping ${pingClass}">${pingText}</span>
+          ${canJoin ? `<button class="play" data-play="${escapeHtml(address)}" data-name="${escapeHtml(peer.name)}">Зайти</button>` : ''}
           <button class="copy" data-copy="${escapeHtml(peer.ip)}">IP</button>
         </div>`;
     })
@@ -160,7 +169,7 @@ function renderMinecraft() {
     tag.className = 'tag live';
     line.hidden = false;
     $('mcAddr').textContent = `${self.ip}:${mc.port}`;
-    $('mcText').textContent = 'Мир открыт. Друзья добавляют этот адрес в «Сетевая игра» → «Прямое подключение».';
+    $('mcText').innerHTML = 'Мир открыт. Друзья видят кнопку <b>«Зайти»</b> в списке — она добавит адрес в «Сетевую игру» сама.';
   } else {
     tag.textContent = 'не найден';
     tag.className = 'tag';
@@ -246,6 +255,32 @@ document.addEventListener('click', async (event) => {
     flash(target, 'ок');
   }
 });
+
+document.addEventListener('click', async (event) => {
+  const target = event.target.closest('[data-play]');
+  if (!target) return;
+  const address = target.dataset.play;
+  const result = await api('/api/minecraft/add', { ip: address, name: `Nurofen · ${target.dataset.name || address}` });
+  if (!result?.ok) {
+    toast(result?.error === 'bad_address' ? 'Некорректный адрес мира' : 'Не удалось записать servers.dat');
+    return;
+  }
+  await copy(address);
+  toast(`Мир добавлен в «Сетевая игра» — ${address}`);
+});
+
+let toastTimer = null;
+function toast(message) {
+  const node = $('toast');
+  node.textContent = message;
+  node.hidden = false;
+  node.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    node.classList.remove('show');
+    toastTimer = setTimeout(() => { node.hidden = true; }, 220);
+  }, 3800);
+}
 
 $('copyIp').addEventListener('click', async () => {
   if (state?.profile?.self && (await copy(state.profile.self.ip))) flash($('copyIp'), 'скопировано');

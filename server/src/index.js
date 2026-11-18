@@ -1,7 +1,8 @@
 import http from 'node:http';
+import fs from 'node:fs';
 import process from 'node:process';
 import { applyServer, applyPortPool, awgStatus, dump, down, syncPeers } from './awg.js';
-import { loadConfig, rootDir, subnetInfo, writeConfig } from './config.js';
+import { loadConfig, rootDir, stateFile, subnetInfo, writeConfig } from './config.js';
 import {
   findNetwork,
   findPeerByToken,
@@ -10,13 +11,15 @@ import {
   publicPeer,
   revokePeer,
   rotateInvite,
+  setLanPort,
   touchPeer,
 } from './network.js';
 import { json, RateLimiter, readJson, safeEqual, text } from './util.js';
 import { adminPage } from './admin-page.js';
 
 const ROOT = rootDir();
-const cfg = loadConfig(ROOT);
+let cfg = loadConfig(ROOT);
+let cfgStamp = fileStamp();
 const log = {
   info: (msg) => console.log(`${new Date().toISOString()} ${msg}`),
   warn: (msg) => console.warn(`${new Date().toISOString()} ${msg}`),
@@ -46,6 +49,29 @@ function endpointHost(req) {
 
 function save() {
   writeConfig(cfg, ROOT);
+  cfgStamp = fileStamp();
+}
+
+function fileStamp() {
+  try {
+    return fs.statSync(stateFile(ROOT)).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * The CLI edits nurofen.json behind our back. Without this the service would
+ * save its stale in-memory copy on the next heartbeat and resurrect a peer the
+ * admin just kicked.
+ */
+function refreshConfig() {
+  const current = fileStamp();
+  if (current && current !== cfgStamp) {
+    cfg = loadConfig(ROOT);
+    cfgStamp = current;
+    log.info('[cfg] reloaded after external change');
+  }
 }
 
 async function liveInfo() {
@@ -112,7 +138,9 @@ async function handleState(req, res, peer) {
 }
 
 async function handleHeartbeat(req, res, peer) {
+  const body = await readJson(req);
   touchPeer(peer);
+  setLanPort(peer, body?.lanPort ?? null);
   save();
   const live = await liveInfo();
   json(res, 200, {
@@ -245,6 +273,7 @@ function matchRoute(method, pathname) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  refreshConfig();
   const route = matchRoute(req.method, url.pathname);
   if (!route) {
     json(res, 404, { error: 'not_found' });

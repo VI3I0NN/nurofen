@@ -62,8 +62,13 @@ export async function state(profile) {
   return request(profile.serverUrl, '/api/v1/state', { token: profile.token, timeoutMs: 6000 });
 }
 
-export async function heartbeat(profile) {
-  return request(profile.serverUrl, '/api/v1/heartbeat', { method: 'POST', token: profile.token, timeoutMs: 6000 });
+export async function heartbeat(profile, extra = {}) {
+  return request(profile.serverUrl, '/api/v1/heartbeat', {
+    method: 'POST',
+    token: profile.token,
+    body: extra,
+    timeoutMs: 6000,
+  });
 }
 
 export async function leave(profile) {

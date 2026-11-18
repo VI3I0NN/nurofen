@@ -146,6 +146,27 @@ try {
     assert.equal(res.status, 401);
   });
 
+  await check('heartbeat publishes the LAN world port', async () => {
+    const beat = await call('POST', '/api/v1/heartbeat', { token: bobToken, body: { lanPort: 54871 } });
+    assert.equal(beat.status, 200);
+    const bobSeen = beat.body.peers.find((peer) => peer.name === 'Bob');
+    assert.equal(bobSeen.lanPort, 54871);
+
+    const state = await call('GET', '/api/v1/state', { token: aliceToken });
+    assert.equal(state.body.peers.find((peer) => peer.name === 'Bob').lanPort, 54871);
+
+    const cleared = await call('POST', '/api/v1/heartbeat', { token: bobToken, body: { lanPort: null } });
+    assert.equal(cleared.body.peers.find((peer) => peer.name === 'Bob').lanPort, null);
+  });
+
+  await check('heartbeat ignores a nonsense LAN port', async () => {
+    const beat = await call('POST', '/api/v1/heartbeat', { token: bobToken, body: { lanPort: 70000 } });
+    assert.equal(beat.status, 200);
+    assert.equal(beat.body.peers.find((peer) => peer.name === 'Bob').lanPort, null);
+    const negative = await call('POST', '/api/v1/heartbeat', { token: bobToken, body: { lanPort: -5 } });
+    assert.equal(negative.body.peers.find((peer) => peer.name === 'Bob').lanPort, null);
+  });
+
   await check('admin overview works', async () => {
     const res = await call('GET', '/api/v1/admin/overview', { token: adminToken });
     assert.equal(res.status, 200);
@@ -181,6 +202,21 @@ try {
     assert.equal(state.body.peers.length, 2);
     const kicked = await call('GET', '/api/v1/state', { token: aliceToken });
     assert.equal(kicked.status, 401);
+  });
+
+  await check('external config edits survive heartbeats', async () => {
+    const file = path.join(root, 'nurofen.json');
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const bobPeer = raw.peers.find((peer) => peer.name === 'Bob');
+    bobPeer.revoked = true;
+    fs.writeFileSync(file, JSON.stringify(raw, null, 2));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const beat = await call('POST', '/api/v1/heartbeat', { token: bobToken, body: {} });
+    assert.equal(beat.status, 401, 'revoked peer must lose access');
+
+    const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(after.peers.find((peer) => peer.name === 'Bob').revoked, true, 'heartbeat must not resurrect the peer');
   });
 
   await check('server config is written with obfuscation', async () => {
