@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nurofen</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 17.5 12 5l7 12.5" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="5" cy="17.5" r="2.4" fill="currentColor"/>
+        <circle cx="19" cy="17.5" r="2.4" fill="currentColor"/>
+        <circle cx="12" cy="5" r="2.4" fill="currentColor"/>
+      </svg>
+      <div class="brand-text">
+        <span class="brand-name">Nurofen</span>
+        <span class="brand-sub" id="netName">виртуальная локальная сеть</span>
+      </div>
+    </div>
+    <div class="top-right">
+      <span class="pill" id="statusPill"><span class="dot"></span><span id="statusText">выключено</span></span>
+      <button class="switch" id="toggle" title="Включить или выключить сеть" aria-pressed="false">
+        <span class="knob"></span>
+      </button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <!-- join -->
+  <main class="join" id="joinView" hidden>
+    <div class="join-card">
+      <h1>Подключиться к сети</h1>
+      <p class="muted">Введите код приглашения, который дал создатель сети.</p>
+      <label class="field">
+        <span>Адрес сервера</span>
+        <input id="serverUrl" type="text" spellcheck="false" placeholder="http://1.2.3.4:8787">
+      </label>
+      <label class="field">
+        <span>Код приглашения</span>
+        <input id="invite" type="text" spellcheck="false" placeholder="ABCD-EFGH" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>Имя устройства</span>
+        <input id="deviceName" type="text" spellcheck="false" placeholder="Мой ПК">
+      </label>
+      <button class="primary wide" id="joinBtn">Подключиться</button>
+      <p class="hint" id="joinError" hidden></p>
+    </div>
+  </main>
+
+  <!-- main -->
+  <main class="app" id="appView" hidden>
+    <section class="hero" id="hero">
+      <div class="hero-main">
+        <span class="eyebrow">Ваш адрес в сети</span>
+        <div class="ip-row">
+          <span class="ip" id="selfIp">—</span>
+          <button class="ghost small" id="copyIp" title="Скопировать адрес">копировать</button>
+        </div>
+        <span class="muted" id="selfHint">включите сеть, чтобы подключиться</span>
+      </div>
+      <div class="hero-stats">
+        <div class="stat"><span class="stat-num" id="onlineCount">0</span><span class="stat-label">в сети</span></div>
+        <div class="stat"><span class="stat-num" id="portValue">—</span><span class="stat-label">порт</span></div>
+        <div class="stat"><span class="stat-num" id="pingValue">—</span><span class="stat-label">пинг</span></div>
+      </div>
+    </section>
+
+    <div class="cols">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Друзья</h2>
+          <span class="muted small" id="peersCount"></span>
+        </div>
+        <div class="peers" id="peers"></div>
+      </section>
+
+      <aside class="side">
+        <section class="panel minecraft" id="mcPanel">
+          <div class="panel-head">
+            <h2>Minecraft</h2>
+            <span class="tag" id="mcTag">не найден</span>
+          </div>
+          <p class="muted small" id="mcText">
+            Откройте мир и нажмите <b>«Открыть для сети»</b> — адрес для друзей появится здесь.
+          </p>
+          <div class="copyline" id="mcLine" hidden>
+            <code id="mcAddr">—</code>
+            <button class="ghost small" id="copyMc">копировать</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><h2>Сеть</h2>
+            <button class="link" id="rotateNote" hidden></button>
+          </div>
+          <dl class="kv">
+            <dt>Приглашение</dt><dd><code id="inviteCode">—</code></dd>
+            <dt>Сервер</dt><dd><code id="serverAddr">—</code></dd>
+            <dt>Подсеть</dt><dd><code id="subnet">—</code></dd>
+            <dt>MTU</dt><dd><code id="mtu">—</code></dd>
+          </dl>
+          <div class="row">
+            <button class="ghost small" id="copyInvite">Скопировать код</button>
+            <button class="ghost small" id="phoneBtn">Конфиг для телефона</button>
+            <button class="ghost small danger" id="leaveBtn">Выйти из сети</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <details>
+            <summary><h2>Диагностика</h2></summary>
+            <div class="diag">
+              <div class="diag-row"><span>Служба-помощник</span><b id="dHelper">—</b></div>
+              <div class="diag-row"><span>AmneziaWG</span><b id="dAwg">—</b></div>
+              <div class="diag-row"><span>Интерфейс</span><b id="dIface">—</b></div>
+            </div>
+            <pre class="log" id="logBox"></pre>
+          </details>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

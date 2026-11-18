@@ -1,0 +1,16 @@
+{
+  "name": "nurofen-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Nurofen Windows client - virtual LAN over AmneziaWG",
+  "main": "src/main.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "helper": "node src/main.js --helper"
+  },
+  "license": "MIT"
+}
