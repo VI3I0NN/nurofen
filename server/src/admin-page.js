@@ -58,11 +58,8 @@ export const adminPage = `<!doctype html>
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
   .dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(53,208,127,.12); }
   .dot.off { background: #3d4757; }
-  .invite { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .code {
-    font-family: var(--mono); font-size: 18px; letter-spacing: .12em; padding: 8px 12px;
-    border-radius: 8px; background: #0a1a13; border: 1px dashed #234a35; color: #8ff0bd;
-  }
+  .netname { font-weight: 600; }
+  .subnet { font-family: var(--mono); font-size: 12px; color: #9fe8bd; }
   button {
     font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 7px; cursor: pointer;
     background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
@@ -77,6 +74,7 @@ export const adminPage = `<!doctype html>
   td.mono { font-family: var(--mono); font-size: 12.5px; }
   .muted { color: var(--muted); }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .create { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: 12px; }
   .toast {
     position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
     background: #16202b; border: 1px solid var(--line); padding: 9px 16px; border-radius: 8px;
@@ -88,6 +86,11 @@ export const adminPage = `<!doctype html>
     background: #0d121a; color: var(--text); border: 1px solid var(--line); width: 100%;
   }
   .login { max-width: 380px; margin: 80px auto; }
+  @media (max-width: 640px) {
+    .create { grid-template-columns: 1fr; }
+    table { font-size: 12px; }
+    th, td { padding: 6px; }
+  }
 </style>
 </head>
 <body>
@@ -95,7 +98,7 @@ export const adminPage = `<!doctype html>
   <div class="mark">N</div>
   <div>
     <h1>Nurofen</h1>
-    <div class="sub">панель управления сетью</div>
+    <div class="sub">панель управления сервером</div>
   </div>
   <div style="margin-left:auto" id="health"></div>
 </header>
@@ -130,7 +133,11 @@ async function api(path, options = {}) {
     headers: { 'authorization': 'Bearer ' + state.token, 'content-type': 'application/json', ...(options.headers || {}) },
   });
   if (res.status === 401) { logout(); throw new Error('unauthorized'); }
-  if (!res.ok) throw new Error('http ' + res.status);
+  if (!res.ok) {
+    let code = 'http ' + res.status;
+    try { const body = await res.json(); if (body && body.error) code = body.error; } catch {}
+    throw new Error(code);
+  }
   return res.json();
 }
 
@@ -170,29 +177,43 @@ function render(data) {
 
   document.getElementById('root').innerHTML = \`
     <div class="grid">
+      <div class="card"><h2>Сети</h2><div class="stat">\${data.networks.length}</div></div>
       <div class="card"><h2>В сети</h2><div class="stat">\${online}<small>из \${data.peers.length}</small></div></div>
-      <div class="card"><h2>Подсеть</h2><div class="stat" style="font-family:var(--mono);font-size:16px">\${data.subnet}</div></div>
+      <div class="card"><h2>Адресное пространство</h2><div class="stat" style="font-family:var(--mono);font-size:16px">\${data.subnet}</div></div>
       <div class="card"><h2>Порт AWG</h2><div class="stat">\${data.server.awgPort}<small>udp</small></div></div>
-      <div class="card"><h2>Пул портов</h2><div class="stat" style="font-size:15px;font-family:var(--mono)">\${data.server.ports.join(', ')}</div></div>
     </div>
 
     <div class="card">
-      <h2>Код приглашения</h2>
-      <div class="invite">
-        <span class="code">\${data.invite}</span>
-        <button onclick="copyInvite()">Скопировать</button>
-        <button onclick="rotate()">Сменить код</button>
-        <span class="muted" style="margin-left:auto">Друзья вводят его в клиенте Nurofen</span>
+      <h2>Сети пользователей</h2>
+      \${data.networks.length ? \`<table>
+        <thead><tr><th>Название</th><th>Подсеть</th><th>Устройств</th><th>Создана</th><th></th></tr></thead>
+        <tbody>\${data.networks.map((net) => \`
+          <tr>
+            <td class="netname">\${escapeHtml(net.name)}</td>
+            <td class="subnet">\${net.subnet}</td>
+            <td>\${net.peers}</td>
+            <td class="muted">\${ago(net.createdAt)}</td>
+            <td style="text-align:right"><div class="row" style="justify-content:flex-end">
+              <button onclick="setPassword('\${net.id}','\${escapeHtml(net.name)}')">Сменить пароль</button>
+              <button class="danger" onclick="removeNetwork('\${net.id}','\${escapeHtml(net.name)}')">Удалить</button>
+            </div></td>
+          </tr>\`).join('')}</tbody>
+      </table>\` : '<p class="muted" style="margin:0">Пока никто не создал сеть. Друзья делают это в клиенте Nurofen.</p>'}
+      <div class="create">
+        <input id="newNetName" type="text" placeholder="Название новой сети" maxlength="32">
+        <input id="newNetPass" type="password" placeholder="Пароль (не короче 4 символов)" maxlength="64">
+        <button class="primary" onclick="createNetwork()">Создать</button>
       </div>
     </div>
 
     <div class="card">
       <h2>Устройства</h2>
       \${data.peers.length ? \`<table>
-        <thead><tr><th>Имя</th><th>IP в сети</th><th>Статус</th><th>Трафик</th><th>Активность</th><th></th></tr></thead>
+        <thead><tr><th>Имя</th><th>Сеть</th><th>IP</th><th>Статус</th><th>Трафик</th><th>Активность</th><th></th></tr></thead>
         <tbody>\${data.peers.map((peer) => \`
           <tr>
             <td>\${escapeHtml(peer.name)}</td>
+            <td class="muted">\${peer.network ? escapeHtml(peer.network.name) : '—'}</td>
             <td class="mono">\${peer.ip}</td>
             <td><span class="pill"><span class="dot \${peer.online ? 'on' : 'off'}"></span>\${peer.online ? 'онлайн' : 'офлайн'}</span></td>
             <td class="muted mono">↓\${fmtBytes(peer.rx)} ↑\${fmtBytes(peer.tx)}</td>
@@ -214,6 +235,7 @@ function render(data) {
         <dl class="kv">
           <dt>адрес</dt><dd>\${data.server.publicHost}</dd>
           <dt>интерфейс</dt><dd>\${data.server.iface}</dd>
+          <dt>пул портов</dt><dd>\${data.server.ports.join(', ')}</dd>
           <dt>MTU</dt><dd>\${data.server.mtu}</dd>
           <dt>API</dt><dd>\${location.host}</dd>
         </dl>
@@ -235,11 +257,41 @@ async function refresh() {
   render(data);
 }
 
-async function rotate() {
-  if (!confirm('Сменить код приглашения? Старый перестанет работать.')) return;
-  const res = await api('/api/v1/admin/invite/rotate', { method: 'POST' });
-  toast('Новый код: ' + res.invite);
-  refresh();
+async function createNetwork() {
+  const name = document.getElementById('newNetName').value.trim();
+  const password = document.getElementById('newNetPass').value;
+  if (!name || password.length < 4) { toast('Нужны название и пароль от 4 символов'); return; }
+  try {
+    await api('/api/v1/admin/networks', { method: 'POST', body: JSON.stringify({ name, password }) });
+    toast('Сеть создана');
+    refresh();
+  } catch (error) {
+    toast(error.message === 'network_exists' ? 'Сеть с таким названием уже есть' : 'Не удалось создать сеть');
+  }
+}
+
+async function setPassword(id, name) {
+  const password = prompt('Новый пароль для сети «' + name + '» (не короче 4 символов)');
+  if (password === null) return;
+  if (password.length < 4) { toast('Пароль слишком короткий'); return; }
+  try {
+    await api('/api/v1/admin/networks/' + id + '/password', { method: 'POST', body: JSON.stringify({ password }) });
+    toast('Пароль изменён');
+    refresh();
+  } catch {
+    toast('Не удалось сменить пароль');
+  }
+}
+
+async function removeNetwork(id, name) {
+  if (!confirm('Удалить сеть «' + name + '»? Все устройства в ней потеряют доступ.')) return;
+  try {
+    await api('/api/v1/admin/networks/' + id, { method: 'DELETE' });
+    toast('Сеть удалена');
+    refresh();
+  } catch {
+    toast('Не удалось удалить сеть');
+  }
 }
 
 async function kick(id, name) {
@@ -253,10 +305,6 @@ async function restartTunnel() {
   await api('/api/v1/admin/awg/restart', { method: 'POST' });
   toast('Туннель перезапущен');
   refresh();
-}
-
-function copyInvite() {
-  navigator.clipboard.writeText(state.data.invite).then(() => toast('Код скопирован'));
 }
 
 if (state.token) {

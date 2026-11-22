@@ -32,6 +32,15 @@ export async function helperAlive() {
   }
 }
 
+export async function helperInfo() {
+  try {
+    const res = await fetch(`http://127.0.0.1:${HELPER_PORT}/health`, { signal: AbortSignal.timeout(1200) });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 async function helperCall(route, body) {
   const token = readHelperToken();
   const res = await fetch(`http://127.0.0.1:${HELPER_PORT}${route}`, {
@@ -114,6 +123,26 @@ export async function ping(host, timeoutMs = 900) {
   if (match) return { ok: true, ms: Number(match[1]) };
   if (/TTL=\d+/i.test(text)) return { ok: true, ms: null };
   return { ok: false, ms: null };
+}
+
+/** Applies the Windows Firewall rules for the virtual LAN (runs in the helper). */
+export async function ensureFirewall(ports = []) {
+  return helperCall('/firewall/ensure', { ports });
+}
+
+/** Live endpoints and handshakes of the peers inside a tunnel. */
+export async function tunnelPeers(name) {
+  return helperCall(`/tunnel/peers?name=${encodeURIComponent(name)}`);
+}
+
+/** Beta P2P: reconcile direct peers; returns their handshakes. */
+export async function syncDirectPeers(payload) {
+  return helperCall('/tunnel/direct', payload);
+}
+
+/** Reloads the privileged helper from disk so it picks up a fresh update. */
+export async function restartHelper() {
+  return helperCall('/helper/restart', {});
 }
 
 /** Downloads and silently installs the official AmneziaWG Windows client. */

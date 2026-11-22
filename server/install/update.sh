@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Updates the control plane code on a server that install.sh already set up.
-# Keeps config, keys, peers and the invite untouched: only src/ is replaced.
+# Keeps config, keys, networks and peers untouched: only src/ is replaced.
 #
 #   sudo bash server/install/update.sh
 #

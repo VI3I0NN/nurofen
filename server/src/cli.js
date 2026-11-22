@@ -4,15 +4,24 @@
  *
  *   node src/cli.js init --host <public-ip> [--port 51820] [--pool 443,500,4500]
  *   node src/cli.js info
- *   node src/cli.js invite
- *   node src/cli.js rotate
+ *   node src/cli.js create <network> <password>
+ *   node src/cli.js passwd <network> <new-password>
+ *   node src/cli.js delete-network <network>
  *   node src/cli.js kick <id|name|ip>
  *   node src/cli.js ports 443,500,4500
  */
 import process from 'node:process';
-import { generateObfuscation, loadConfig, rootDir, subnetInfo, writeConfig } from './config.js';
-import { awgStatus, applyPortPool, syncPeers } from './awg.js';
-import { peersOfNetwork, publicPeer, revokePeer, rotateInvite } from './network.js';
+import { generateObfuscation, loadConfig, rootDir, SUPERNET, writeConfig } from './config.js';
+import { applyIsolation, applyPortPool, awgStatus, syncAddresses, syncPeers } from './awg.js';
+import {
+  createNetwork,
+  deleteNetwork,
+  findNetworkByName,
+  peersOfNetwork,
+  revokePeer,
+  setNetworkPassword,
+  validatePassword,
+} from './network.js';
 
 const cfg = loadConfig(rootDir());
 const [, , command = 'info', ...rest] = process.argv;
@@ -28,18 +37,26 @@ function save() {
 }
 
 function printInfo() {
-  const net = subnetInfo(cfg);
-  console.log(`network    ${cfg.networks[0].name}  ${net.cidr}  (hub ${net.serverIp})`);
-  console.log(`invite     ${cfg.networks[0].invite}`);
+  console.log(`supernet   ${SUPERNET}`);
   console.log(`adminToken ${cfg.adminToken}`);
   console.log(`endpoint   ${cfg.server.publicHost || '<not set>'}:${cfg.server.awgPort} udp`);
   console.log(`port pool  ${(cfg.server.portPool || []).join(', ') || '-'}`);
   console.log(`interface  ${cfg.server.interface}  mtu ${cfg.server.mtu}`);
-  const peers = peersOfNetwork(cfg, cfg.networks[0].id);
-  console.log(`peers      ${peers.length}`);
-  for (const peer of peers) {
-    console.log(`  - ${peer.name.padEnd(20)} ${peer.ip.padEnd(15)} ${peer.lastSeen || ''}`);
+  console.log(`networks   ${cfg.networks.length}`);
+  for (const network of cfg.networks) {
+    const peers = peersOfNetwork(cfg, network.id);
+    console.log(`  - ${network.name.padEnd(20)} ${network.subnet}  peers ${peers.length}`);
+    for (const peer of peers) {
+      console.log(`      ${peer.name.padEnd(18)} ${peer.ip.padEnd(15)} ${peer.lastSeen || ''}`);
+    }
   }
+}
+
+async function applyNetworkChange() {
+  save();
+  await syncAddresses(cfg);
+  await syncPeers(cfg);
+  await applyIsolation(cfg);
 }
 
 switch (command) {
@@ -64,15 +81,42 @@ switch (command) {
     break;
   }
   case 'info':
+  case 'networks':
     printInfo();
     break;
-  case 'invite':
-    console.log(cfg.networks[0].invite);
+  case 'create': {
+    const name = String(rest[0] || '').trim();
+    const password = String(rest[1] || '').trim();
+    if (!name || !password) {
+      console.error('usage: cli.js create <network> <password>');
+      process.exit(1);
+    }
+    const network = createNetwork(cfg, { name, password });
+    await applyNetworkChange();
+    console.log(`created "${network.name}" ${network.subnet}`);
     break;
-  case 'rotate': {
-    const network = rotateInvite(cfg, cfg.networks[0].id);
+  }
+  case 'passwd': {
+    const network = findNetworkByName(cfg, rest[0]);
+    if (!network) {
+      console.error(`network not found: ${rest[0] || ''}`);
+      process.exit(1);
+    }
+    const password = validatePassword(rest[1]);
+    setNetworkPassword(network, password);
     save();
-    console.log(network.invite);
+    console.log(`password updated for "${network.name}"`);
+    break;
+  }
+  case 'delete-network': {
+    const network = findNetworkByName(cfg, rest[0]);
+    if (!network) {
+      console.error(`network not found: ${rest[0] || ''}`);
+      process.exit(1);
+    }
+    deleteNetwork(cfg, network.id);
+    await applyNetworkChange();
+    console.log(`deleted "${network.name}"`);
     break;
   }
   case 'kick': {
@@ -119,7 +163,7 @@ switch (command) {
     break;
   }
   default:
-    console.log('commands: init | info | invite | rotate | kick | ports | reseed | status | prune');
-    console.log(`peers: ${cfg.peers.filter((peer) => !peer.revoked).length}`);
+    console.log('commands: init | info | create | passwd | delete-network | kick | ports | reseed | status | prune');
+    console.log(`networks: ${cfg.networks.length}, peers: ${cfg.peers.filter((peer) => !peer.revoked).length}`);
     process.exit(command === 'help' ? 0 : 1);
 }

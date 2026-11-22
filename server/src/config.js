@@ -1,9 +1,22 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { generateKeyPairSync } from 'node:crypto';
-import { inviteCode, id, nowIso, token } from './util.js';
+import { cleanNetworkName, hashPassword, id, isValidKey, networkKey, nowIso, token } from './util.js';
 
-export const CONFIG_VERSION = 1;
+export const CONFIG_VERSION = 2;
+
+/**
+ * All networks share one AmneziaWG interface. Every network owns a /24 inside
+ * this /16, so a peer address tells the server which network it belongs to and
+ * the destination subnet tells it whether the packet may leave the hub.
+ */
+export const SUPERNET = '10.66.0.0/16';
+export const NETWORK_PREFIX = 24;
+export const NETWORK_INDEX_MAX = 254;
+export const MAX_NETWORKS = 128;
+
+/** Address of the hub itself when no network exists yet. */
+export const HUB_MANAGEMENT_IP = '10.66.255.254';
 
 export function rootDir() {
   return process.env.NUROFEN_ROOT || '/etc/nurofen';
@@ -78,7 +91,7 @@ export function defaultConfig(overrides = {}) {
       portPool: [51820, 443, 500, 4500],
       mtu: 1280,
       keepalive: 25,
-      subnet: '10.66.0.0/24',
+      supernet: SUPERNET,
       ...overrides.server,
     },
     awg: {
@@ -87,16 +100,88 @@ export function defaultConfig(overrides = {}) {
       obfuscation: generateObfuscation(),
       ...overrides.awg,
     },
-    networks: [
-      {
-        id: id(),
-        name: 'Nurofen',
-        invite: inviteCode(),
-        createdAt: nowIso(),
-      },
-    ],
+    // Fresh installations start empty: everyone creates or joins a network.
+    networks: [],
     peers: [],
   };
+}
+
+/** "10.66.12.0/24" -> 12, or null when it is not our subnet shape. */
+export function subnetIndex(subnet) {
+  const match = /^10\.66\.(\d{1,3})\.0\/24$/.exec(String(subnet || ''));
+  if (!match) return null;
+  const index = Number(match[1]);
+  return index >= 0 && index <= NETWORK_INDEX_MAX ? index : null;
+}
+
+export function subnetForIndex(index) {
+  return `10.66.${index}.0/24`;
+}
+
+/** Everything the allocator, AWG config and client config need for one /24. */
+export function networkSubnet(network) {
+  const index = subnetIndex(network?.subnet) ?? 0;
+  const base = `10.66.${index}`;
+  return {
+    index,
+    prefix: NETWORK_PREFIX,
+    network: `${base}.0`,
+    cidr: `${base}.0/${NETWORK_PREFIX}`,
+    serverIp: `${base}.1`,
+    // .1 is the hub, .2..9 are reserved (DNS, NAT gateway, future use).
+    firstClient: 10,
+    lastClient: 254,
+  };
+}
+
+function nextFreeIndex(used) {
+  for (let index = 0; index <= NETWORK_INDEX_MAX; index += 1) {
+    if (!used.has(index)) return index;
+  }
+  return null;
+}
+
+/**
+ * Old installations stored one network with an invite code and one /24 in
+ * server.subnet. The invite becomes the first password, so friends who still
+ * know the code can join the same network after the upgrade.
+ */
+function migrateNetwork(rawNet, used, usedNames) {
+  const net = { ...(rawNet || {}) };
+  net.id = net.id || id();
+  net.createdAt = net.createdAt || nowIso();
+
+  let name = cleanNetworkName(net.name) || 'Сеть';
+  let key = networkKey(name);
+  let suffix = 2;
+  while (usedNames.has(key)) {
+    name = `${cleanNetworkName(net.name) || 'Сеть'} ${suffix}`.slice(0, 32);
+    key = networkKey(name);
+    suffix += 1;
+  }
+  net.name = name;
+  net.nameKey = key;
+  usedNames.add(key);
+
+  let index = subnetIndex(net.subnet);
+  if (index === null || used.has(index)) index = nextFreeIndex(used);
+  if (index === null) return null;
+  net.subnet = subnetForIndex(index);
+  used.add(index);
+
+  if (!net.passwordHash) {
+    const legacy = String(net.invite || net.password || '');
+    if (legacy) {
+      const hashed = hashPassword(legacy);
+      net.passwordSalt = hashed.salt;
+      net.passwordHash = hashed.hash;
+      net.passwordUpdatedAt = nowIso();
+    }
+  }
+  delete net.invite;
+  delete net.password;
+
+  return net;
 }
 
 export function loadConfig(root = rootDir()) {
@@ -115,6 +200,13 @@ export function loadConfig(root = rootDir()) {
   }
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
   const cfg = normalize(raw);
+  // Persist migrations (invite -> password hash, subnet assignment) right away
+  // so the CLI and the service agree on what is on disk.
+  try {
+    if (JSON.stringify(raw) !== JSON.stringify(cfg)) writeConfig(cfg, root);
+  } catch {
+    // A read-only root is not fatal: the in-memory config still works.
+  }
   return cfg;
 }
 
@@ -133,29 +225,30 @@ function normalize(raw) {
     ...raw,
     server: { ...base.server, ...(raw.server || {}) },
     awg: { ...base.awg, ...(raw.awg || {}) },
-    networks: Array.isArray(raw.networks) && raw.networks.length ? raw.networks : base.networks,
     peers: Array.isArray(raw.peers) ? raw.peers : [],
   };
+  cfg.version = CONFIG_VERSION;
+  cfg.server.supernet = SUPERNET;
+  delete cfg.server.subnet;
   cfg.awg.obfuscation = { ...base.awg.obfuscation, ...(raw.awg?.obfuscation || {}) };
   if (!cfg.adminToken) cfg.adminToken = base.adminToken;
-  return cfg;
-}
 
-/** Splits "10.66.0.0/24" into the parts the allocator needs. */
-export function subnetInfo(cfg) {
-  const [addr, mask] = String(cfg.server.subnet).split('/');
-  const prefix = Number(mask || 24);
-  const octets = addr.split('.').map(Number);
-  const network = [...octets];
-  if (prefix === 24) network[3] = 0;
-  const serverIp = `${network[0]}.${network[1]}.${network[2]}.1`;
-  return {
-    prefix,
-    network: `${network[0]}.${network[1]}.${network[2]}.0`,
-    cidr: `${network[0]}.${network[1]}.${network[2]}.0/${prefix}`,
-    serverIp,
-    // .1 is the hub, .2..8 are reserved for future use (DNS, NAT gateway).
-    firstClient: 10,
-    lastClient: 254,
-  };
+  const used = new Set();
+  const usedNames = new Set();
+  const networks = [];
+  for (const rawNet of Array.isArray(raw.networks) ? raw.networks : []) {
+    const net = migrateNetwork(rawNet, used, usedNames);
+    if (net) networks.push(net);
+  }
+  cfg.networks = networks;
+
+  // A peer is only usable when its key loads in `wg` and its network still
+  // exists. Hand-edited or half-written entries are revoked instead of
+  // breaking every future sync.
+  const networkIds = new Set(networks.map((net) => net.id));
+  cfg.peers = cfg.peers.filter((peer) => peer && typeof peer === 'object' && peer.id);
+  for (const peer of cfg.peers) {
+    if (!networkIds.has(peer.networkId) || !isValidKey(peer.publicKey)) peer.revoked = true;
+  }
+  return cfg;
 }

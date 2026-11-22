@@ -1,24 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { generateKeyPairSync, randomUUID } from 'node:crypto';
+import { randomUUID, generateKeyPairSync } from 'node:crypto';
 import { ensureDir, confDir, dataDir, profileFile } from './paths.js';
 
 const DEFAULT = {
-  version: 1,
-  deviceId: null,
+  version: 2,
   deviceName: '',
-  privateKey: '',
-  publicKey: '',
-  token: '',
-  network: null,
-  self: null,
-  server: null,
-  obfuscation: null,
-  mtu: 1280,
-  keepalive: 25,
-  portIndex: 0,
-  lastPort: null,
-  createdAt: null,
+  activeId: null,
+  settings: {
+    compactPeers: false,
+    autoConnect: true,
+  },
+  networks: [],
 };
 
 export function keypair() {
@@ -29,13 +22,112 @@ export function keypair() {
   };
 }
 
-export function loadProfile() {
-  try {
-    const raw = JSON.parse(fs.readFileSync(profileFile(), 'utf8'));
-    return { ...DEFAULT, ...raw };
-  } catch {
-    return { ...DEFAULT };
+/** Old profiles kept a single network at the top level; fold them into the list. */
+function migrate(raw) {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT };
+  if (Array.isArray(raw.networks)) {
+    return {
+      ...DEFAULT,
+      ...raw,
+      settings: {
+        ...DEFAULT.settings,
+        ...(raw.settings && typeof raw.settings === 'object' ? raw.settings : {}),
+      },
+      networks: raw.networks.filter((item) => item && item.network && item.self),
+    };
   }
+  if (raw.token && raw.serverUrl && raw.network && raw.self) {
+    return {
+      version: 2,
+      deviceName: raw.deviceName || '',
+      activeId: raw.network.id || null,
+      settings: { ...DEFAULT.settings },
+      networks: [
+        {
+          id: randomUUID(),
+          deviceId: raw.deviceId || randomUUID(),
+          serverUrl: raw.serverUrl,
+          token: raw.token,
+          network: raw.network,
+          self: raw.self,
+          server: raw.server,
+          obfuscation: raw.obfuscation,
+          mtu: raw.mtu || 1280,
+          keepalive: raw.keepalive || 25,
+          privateKey: raw.privateKey,
+          publicKey: raw.publicKey,
+          lastPort: raw.lastPort || null,
+          interface: 'nurofen',
+          listenPort: 57220,
+          autoConnect: Boolean(raw.lastPort),
+          direct: false,
+          createdAt: raw.createdAt || new Date().toISOString(),
+        },
+      ],
+    };
+  }
+  return { ...DEFAULT };
+}
+
+const INTERFACE_RE = /^nurofen(-(\d+))?$/;
+
+/** nurofen, nurofen-2, nurofen-3… — unique interface per network. */
+export function nextInterface(profile) {
+  const used = new Set((profile.networks || []).map((item) => item.interface));
+  if (!used.has('nurofen')) return 'nurofen';
+  for (let n = 2; n < 100; n += 1) {
+    const name = `nurofen-${n}`;
+    if (!used.has(name)) return name;
+  }
+  return `nurofen-${randomUUID().slice(0, 8)}`;
+}
+
+function normalize(profile) {
+  const used = new Set();
+  profile.settings = {
+    ...DEFAULT.settings,
+    ...(profile.settings && typeof profile.settings === 'object' ? profile.settings : {}),
+  };
+  profile.settings.compactPeers = profile.settings.compactPeers === true;
+  profile.settings.autoConnect = profile.settings.autoConnect !== false;
+  for (const item of profile.networks) {
+    if (!item.id) item.id = randomUUID();
+    if (!item.deviceId) item.deviceId = randomUUID();
+    if (!INTERFACE_RE.test(String(item.interface || '')) || used.has(item.interface)) {
+      item.interface = '';
+    }
+    if (item.interface) used.add(item.interface);
+  }
+  for (const item of profile.networks) {
+    if (!item.interface) {
+      item.interface = nextInterface(profile);
+      used.add(item.interface);
+    }
+    if (item.autoConnect === undefined) item.autoConnect = Boolean(item.lastPort);
+    if (item.direct === undefined) item.direct = false;
+    if (!Number.isInteger(item.listenPort) || item.listenPort <= 0 || item.listenPort >= 65536) {
+      const match = /^nurofen(?:-(\d+))?$/.exec(String(item.interface || 'nurofen'));
+      const index = match && match[1] ? Number(match[1]) - 1 : 0;
+      item.listenPort = 57220 + Math.max(0, index);
+    }
+  }
+  if (!profile.networks.some((item) => item.id === profile.activeId)) {
+    profile.activeId = profile.networks[0]?.id || null;
+  }
+  return profile;
+}
+
+export function loadProfile() {
+  let raw = null;
+  try {
+    raw = JSON.parse(fs.readFileSync(profileFile(), 'utf8'));
+  } catch {
+    raw = null;
+  }
+  const legacy = raw && (Object.prototype.hasOwnProperty.call(raw, 'invite') || !raw.version || raw.version < 2 || Object.prototype.hasOwnProperty.call(raw, 'token'));
+  const profile = normalize(migrate(raw));
+  if (legacy) saveProfile(profile);
+  return profile;
 }
 
 export function saveProfile(profile) {
@@ -47,17 +139,10 @@ export function saveProfile(profile) {
   return profile;
 }
 
-/** Creates the local identity: device id, name and X25519 keypair. */
+/** Creates the local identity used when adding a network. */
 export function initProfile(deviceName) {
   const profile = loadProfile();
-  if (!profile.deviceId) profile.deviceId = randomUUID();
-  if (!profile.privateKey) {
-    const pair = keypair();
-    profile.privateKey = pair.privateKey;
-    profile.publicKey = pair.publicKey;
-  }
   profile.deviceName = deviceName || profile.deviceName || defaultDeviceName();
-  profile.createdAt = profile.createdAt || new Date().toISOString();
   saveProfile(profile);
   return profile;
 }
@@ -67,38 +152,29 @@ export function defaultDeviceName() {
   return host.replace(/[^a-zA-Z0-9-_]/g, '').slice(0, 20) || 'pc';
 }
 
-export function forgetNetwork() {
-  const profile = loadProfile();
-  const next = {
-    ...DEFAULT,
-    deviceId: profile.deviceId,
-    deviceName: profile.deviceName,
-    privateKey: profile.privateKey,
-    publicKey: profile.publicKey,
-    createdAt: profile.createdAt,
-  };
-  // New keys on every network change: the old public key is revoked server side.
-  const pair = keypair();
-  next.privateKey = pair.privateKey;
-  next.publicKey = pair.publicKey;
-  saveProfile(next);
-  return next;
+export function removeMembership(profile, id) {
+  profile.networks = profile.networks.filter((item) => item.id !== id);
+  if (profile.activeId === id) profile.activeId = profile.networks[0]?.id || null;
+  return profile;
 }
 
 export function confPath(name = 'nurofen') {
   return path.join(ensureDir(confDir()), `${name}.conf`);
 }
 
-export function renderConfig(profile, port) {
-  if (!profile.server || !profile.self || !profile.obfuscation) throw new Error('profile is not joined to a network');
-  const o = profile.obfuscation;
-  const endpoint = `${profile.server.host}:${port ?? profile.server.port}`;
+export function renderConfig(network, port) {
+  if (!network.server || !network.self || !network.obfuscation) {
+    throw new Error('profile is not joined to a network');
+  }
+  const o = network.obfuscation;
+  const endpoint = `${network.server.host}:${port ?? network.server.port}`;
   return [
     '# Nurofen profile (generated, do not edit)',
     '[Interface]',
-    `PrivateKey = ${profile.privateKey}`,
-    `Address = ${profile.self.ip}/24`,
-    `MTU = ${profile.mtu || 1280}`,
+    `PrivateKey = ${network.privateKey}`,
+    `Address = ${network.self.ip}/24`,
+    `ListenPort = ${network.listenPort || 57220}`,
+    `MTU = ${network.mtu || 1280}`,
     `Jc = ${o.Jc}`,
     `Jmin = ${o.Jmin}`,
     `Jmax = ${o.Jmax}`,
@@ -110,10 +186,10 @@ export function renderConfig(profile, port) {
     `H4 = ${o.H4}`,
     '',
     '[Peer]',
-    `PublicKey = ${profile.server.publicKey}`,
+    `PublicKey = ${network.server.publicKey}`,
     `Endpoint = ${endpoint}`,
-    `AllowedIPs = ${profile.network.subnet}`,
-    `PersistentKeepalive = ${profile.keepalive || 25}`,
+    `AllowedIPs = ${network.network.subnet}`,
+    `PersistentKeepalive = ${network.keepalive || 25}`,
     '',
   ].join('\n');
 }

@@ -7,3 +7,5 @@ Thumbs.db
 .env
 client/defaults.json
 tmp/
+dist/
+tools/cache/

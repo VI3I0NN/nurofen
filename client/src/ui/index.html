@@ -4,128 +4,252 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Nurofen</title>
+  <link rel="icon" href="nurofen.ico" type="image/x-icon">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M5 17.5 12 5l7 12.5" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="5" cy="17.5" r="2.4" fill="currentColor"/>
-        <circle cx="19" cy="17.5" r="2.4" fill="currentColor"/>
-        <circle cx="12" cy="5" r="2.4" fill="currentColor"/>
+  <header class="app-header">
+    <a class="brand" href="#" aria-label="Nurofen" onclick="return false">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 17.5 12 5l7 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="5" cy="17.5" r="2" fill="currentColor"/>
+        <circle cx="19" cy="17.5" r="2" fill="currentColor"/>
+        <circle cx="12" cy="5" r="2" fill="currentColor"/>
       </svg>
-      <div class="brand-text">
-        <span class="brand-name">Nurofen</span>
-        <span class="brand-sub" id="netName">виртуальная локальная сеть</span>
+      <span>Nurofen</span>
+    </a>
+
+    <nav class="menubar" aria-label="Главная навигация">
+      <div class="menu" data-menu="system">
+        <button type="button" class="menu-button" aria-label="Система">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H4zM8 20h8M12 16v4"/></svg>
+          <span>Система</span>
+        </button>
+        <div class="dropdown">
+          <button type="button" data-action="update">Обновления…</button>
+          <button type="button" data-action="diagnostics">Диагностика…</button>
+          <button type="button" data-action="settings">Настройки…</button>
+          <button type="button" data-action="quit" class="danger">Выход</button>
+        </div>
       </div>
-    </div>
-    <div class="top-right">
-      <span class="pill" id="statusPill"><span class="dot"></span><span id="statusText">выключено</span></span>
-      <button class="switch" id="toggle" title="Включить или выключить сеть" aria-pressed="false">
-        <span class="knob"></span>
-      </button>
-    </div>
+      <div class="menu" data-menu="network">
+        <button type="button" class="menu-button" aria-label="Сеть">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.2 10.8 7.5-3.6M8.2 13.2l7.5 3.6"/></svg>
+          <span>Сеть</span>
+        </button>
+        <div class="dropdown">
+          <button type="button" data-action="nickname">Изменить ник…</button>
+          <button type="button" data-action="add">Добавить сеть…</button>
+          <button type="button" data-action="toggle" id="menuToggle">Включить</button>
+          <button type="button" data-action="leave" id="menuLeave" class="danger">Выйти из сети…</button>
+        </div>
+      </div>
+      <div class="menu" data-menu="help">
+        <button type="button" class="menu-button" aria-label="Справка">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9a2.5 2.5 0 1 1 4.3 1.8c-1.2 1.1-1.9 1.5-1.9 3M12 17.3h.01"/></svg>
+          <span>Справка</span>
+        </button>
+        <div class="dropdown">
+          <button type="button" data-action="about">О программе</button>
+        </div>
+      </div>
+    </nav>
   </header>
 
   <div class="banner" id="banner" hidden></div>
 
-  <!-- join -->
+  <!-- вход, создание или добавление сети -->
   <main class="join" id="joinView" hidden>
     <div class="join-card">
-      <h1>Подключиться к сети</h1>
-      <p class="muted">Введите код приглашения, который дал создатель сети.</p>
+      <button type="button" class="back" id="joinBack" hidden>← Назад</button>
+
+      <div class="join-brand">
+        <svg class="join-mark" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 17.5 12 5l7 12.5" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="5" cy="17.5" r="2.4" fill="currentColor"/>
+          <circle cx="19" cy="17.5" r="2.4" fill="currentColor"/>
+          <circle cx="12" cy="5" r="2.4" fill="currentColor"/>
+        </svg>
+        <div>
+          <div class="join-name">Nurofen</div>
+          <div class="join-sub">ваши сети рядом</div>
+        </div>
+      </div>
+
+      <div class="mode-switch" role="group" aria-label="Действие с сетью">
+        <button type="button" class="mode-option active" data-mode="join">Подключиться</button>
+        <button type="button" class="mode-option" data-mode="create">Создать сеть</button>
+      </div>
+
+      <h1 id="formTitle">Подключиться к сети</h1>
+      <p class="join-hint" id="formHint">Введите название сети и пароль, который сообщил её создатель.</p>
+
       <label class="field">
-        <span>Адрес сервера</span>
-        <input id="serverUrl" type="text" spellcheck="false" placeholder="http://1.2.3.4:8787">
+        <span>Название сети</span>
+        <input id="networkName" type="text" spellcheck="false" placeholder="Например, Друзья" maxlength="32" autocomplete="off">
       </label>
       <label class="field">
-        <span>Код приглашения</span>
-        <input id="invite" type="text" spellcheck="false" placeholder="ABCD-EFGH" autocomplete="off">
+        <span>Пароль сети</span>
+        <input id="networkPassword" type="password" placeholder="Не менее 4 символов" maxlength="64" autocomplete="new-password">
       </label>
       <label class="field">
         <span>Имя устройства</span>
-        <input id="deviceName" type="text" spellcheck="false" placeholder="Мой ПК">
+        <input id="deviceName" type="text" spellcheck="false" placeholder="Мой ПК" maxlength="32">
       </label>
-      <button class="primary wide" id="joinBtn">Подключиться</button>
+
+      <button class="primary" id="joinBtn">Подключиться</button>
       <p class="hint" id="joinError" hidden></p>
     </div>
   </main>
 
-  <!-- main -->
+  <!-- основное окно -->
   <main class="app" id="appView" hidden>
-    <section class="hero" id="hero">
-      <div class="hero-main">
-        <span class="eyebrow">Ваш адрес в сети</span>
-        <div class="ip-row">
-          <span class="ip" id="selfIp">—</span>
-          <button class="ghost small" id="copyIp" title="Скопировать адрес">копировать</button>
+    <div class="nets">
+      <div class="net-tabs" id="netTabs" role="tablist" aria-label="Мои сети"></div>
+      <button class="net-add" id="addNetBtn" type="button" title="Добавить сеть" aria-label="Добавить сеть">+</button>
+    </div>
+
+    <section class="hero">
+      <button class="power-ring" id="powerBtn" type="button" aria-pressed="false" title="Включить или выключить сеть">
+        <svg class="power-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3.8v8.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M7.4 6.7a7.4 7.4 0 1 0 9.2 0" fill="none" stroke="currentColor"
+                stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+        <span class="power-state" id="powerLabel">OFF</span>
+      </button>
+
+      <span class="pill" id="statusPill"><span class="dot"></span><span id="statusText">Не в сети</span></span>
+
+      <div class="hero-info">
+        <div class="hero-net" id="netName">Сеть</div>
+        <div class="hero-self-row">
+          <div class="hero-self" id="selfName">—</div>
+          <button type="button" class="nick-edit" id="editNickBtn" title="Изменить ник" aria-label="Изменить ник">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16v4Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m13.5 5.5 4 4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+          </button>
         </div>
-        <span class="muted" id="selfHint">включите сеть, чтобы подключиться</span>
-      </div>
-      <div class="hero-stats">
-        <div class="stat"><span class="stat-num" id="onlineCount">0</span><span class="stat-label">в сети</span></div>
-        <div class="stat"><span class="stat-num" id="portValue">—</span><span class="stat-label">порт</span></div>
-        <div class="stat"><span class="stat-num" id="pingValue">—</span><span class="stat-label">пинг</span></div>
+        <div class="hero-ip" id="selfIp">—</div>
       </div>
     </section>
 
-    <div class="cols">
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Друзья</h2>
-          <span class="muted small" id="peersCount"></span>
-        </div>
-        <div class="peers" id="peers"></div>
-      </section>
+    <section class="direct-row">
+      <label class="direct-toggle" title="Прямые соединения между участниками (бета). Работают, только если включены у обоих.">
+        <input type="checkbox" id="directToggle">
+        <span class="direct-track"><span class="direct-thumb"></span></span>
+        <span class="direct-label">Прямые соединения</span>
+        <span class="beta">BETA</span>
+      </label>
+      <span class="direct-hint" id="directHint">Нужно включить у обоих</span>
+    </section>
 
-      <aside class="side">
-        <section class="panel minecraft" id="mcPanel">
-          <div class="panel-head">
-            <h2>Minecraft</h2>
-            <span class="tag" id="mcTag">не найден</span>
-          </div>
-          <p class="muted small" id="mcText">
-            Откройте мир и нажмите <b>«Открыть для сети»</b> — адрес для друзей появится здесь.
-          </p>
-          <div class="copyline" id="mcLine" hidden>
-            <code id="mcAddr">—</code>
-            <button class="ghost small" id="copyMc">копировать</button>
-          </div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head"><h2>Сеть</h2>
-            <button class="link" id="rotateNote" hidden></button>
-          </div>
-          <dl class="kv">
-            <dt>Приглашение</dt><dd><code id="inviteCode">—</code></dd>
-            <dt>Сервер</dt><dd><code id="serverAddr">—</code></dd>
-            <dt>Подсеть</dt><dd><code id="subnet">—</code></dd>
-            <dt>MTU</dt><dd><code id="mtu">—</code></dd>
-          </dl>
-          <div class="row">
-            <button class="ghost small" id="copyInvite">Скопировать код</button>
-            <button class="ghost small" id="phoneBtn">Конфиг для телефона</button>
-            <button class="ghost small danger" id="leaveBtn">Выйти из сети</button>
-          </div>
-        </section>
-
-        <section class="panel">
-          <details>
-            <summary><h2>Диагностика</h2></summary>
-            <div class="diag">
-              <div class="diag-row"><span>Служба-помощник</span><b id="dHelper">—</b></div>
-              <div class="diag-row"><span>AmneziaWG</span><b id="dAwg">—</b></div>
-              <div class="diag-row"><span>Интерфейс</span><b id="dIface">—</b></div>
-            </div>
-            <pre class="log" id="logBox"></pre>
-          </details>
-        </section>
-      </aside>
-    </div>
+    <section class="members">
+      <header class="members-head">
+        <span class="members-title">Участники</span>
+        <span class="members-count" id="peersCount"></span>
+      </header>
+      <div class="peer-list" id="peers"></div>
+    </section>
   </main>
+
+  <footer class="statusbar" id="statusbar" hidden>
+    <span class="status-network">
+      <svg class="status-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.5 9h17M3.5 15h17M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+      <span id="statusLeft">—</span>
+    </span>
+    <span id="statusCenter"></span>
+    <span id="statusRight"></span>
+  </footer>
+
+  <div class="modal" id="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <header class="modal-head">
+        <h2 id="modalTitle">—</h2>
+        <button class="modal-close" id="modalClose" type="button" aria-label="Закрыть">×</button>
+      </header>
+      <div class="modal-body">
+        <div id="paneNickname" hidden>
+          <label class="field"><span>Ваш ник во всех сетях</span><input id="nicknameInput" maxlength="32" minlength="2" autocomplete="off"></label>
+          <button class="primary" id="nicknameSave" type="button">Сохранить</button>
+          <p class="hint" id="nicknameError" hidden></p>
+        </div>
+        <div id="paneDiagnostics" hidden>
+          <div class="diag">
+            <div class="diag-row"><span>Служба-помощник</span><b id="dHelper">—</b></div>
+            <div class="diag-row"><span>AmneziaWG</span><b id="dAwg">—</b></div>
+          </div>
+          <button class="ghost force-update" id="dHelperFix" type="button">Принудительно обновить службу</button>
+          <div class="diag" id="diagNetworks"></div>
+          <pre class="log" id="logBox"></pre>
+        </div>
+
+        <div id="paneUpdate" hidden>
+          <dl class="kv">
+            <dt>Клиент</dt><dd><code id="upCurrent">—</code></dd>
+            <dt>Служба</dt><dd><code id="upHelper">—</code></dd>
+            <dt>На сервере</dt><dd><code id="upLatest">—</code></dd>
+          </dl>
+          <p class="update-text" id="upText">Проверяю наличие обновлений…</p>
+          <div class="row">
+            <button class="ghost" id="upCheck" type="button">Проверить снова</button>
+            <button class="primary slim" id="upApply" type="button" hidden>Установить</button>
+          </div>
+          <button class="ghost force-update" id="upForceHelper" type="button">Принудительно обновить службу</button>
+          <p class="modal-note">Принудительное обновление заново скачает проверенный пакет, установит файлы и перезапустит службу от имени администратора.</p>
+          <p class="modal-note">Обновление скачивается с сервера и заменяет файлы клиента.
+            Если папка программы защищена, Windows один раз спросит права администратора.</p>
+        </div>
+
+        <div id="paneSettings" hidden>
+          <section class="settings-group">
+            <h3>Оформление · тёмная тема</h3>
+            <label class="check-row">
+              <input type="checkbox" id="setCompact">
+              <span><b>Компактный список</b><small>Больше участников на экране, меньше отступы.</small></span>
+            </label>
+          </section>
+
+          <section class="settings-group">
+            <h3>Подключение</h3>
+            <label class="check-row">
+              <input type="checkbox" id="setAutoConnect">
+              <span><b>Подключаться при запуске</b><small>Сеть из прошлого сеанса включается сама.</small></span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="setDirect">
+              <span><b>Прямые соединения</b><small>Бета. Ускоряет обмен между участниками, если включено у обоих.</small></span>
+            </label>
+          </section>
+
+          <section class="settings-group">
+            <h3>Устройство</h3>
+            <div class="settings-line">
+              <span>Ник</span>
+              <button type="button" class="ghost slim-ghost" id="setNickname">Изменить</button>
+            </div>
+            <div class="settings-line">
+              <span>Текущая сеть</span>
+              <b id="setNetwork">—</b>
+            </div>
+          </section>
+
+          <p class="modal-note">Настройки сохраняются в профиле и не сбрасываются при обновлении.</p>
+        </div>
+
+        <div id="paneAbout" hidden>
+          <p class="about-name">Nurofen</p>
+          <p class="muted">Виртуальная локальная сеть на AmneziaWG. Можно держать несколько
+            сетей сразу: у каждой свой адрес, участники и пароль.</p>
+          <dl class="kv">
+            <dt>Версия</dt><dd><code id="aboutVersion">—</code></dd>
+            <dt>Сетей</dt><dd><code id="aboutNetworks">—</code></dd>
+            <dt>Разработчик</dt><dd><code>VI3I0NN</code></dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="toast" id="toast" hidden></div>
 

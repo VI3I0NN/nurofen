@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Removes the Nurofen control plane from this server.
-#   bash uninstall.sh          keep /etc/nurofen (keys, devices, invite)
+#   bash uninstall.sh          keep /etc/nurofen (keys, networks, devices)
 #   bash uninstall.sh --purge  remove everything
 #
 set -Eeuo pipefail

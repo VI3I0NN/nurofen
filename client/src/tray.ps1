@@ -1,4 +1,4 @@
-param(
+﻿param(
   [int]$Port = 39391,
   [string]$Icon = ""
 )
@@ -48,9 +48,11 @@ $notify.ContextMenuStrip = $menu
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 3000
+$script:fails = 0
 $timer.add_Tick({
   try {
     $state = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/status" -TimeoutSec 3
+    $script:fails = 0
     $label = switch ($state.status) {
       'connected' { 'в сети' }
       'connecting' { 'подключение' }
@@ -67,8 +69,16 @@ $timer.add_Tick({
       $toggleItem.Text = 'Включить'
     }
   } catch {
-    $notify.Visible = $false
-    [System.Windows.Forms.Application]::Exit()
+    # The client may be restarting or busy: keep the icon alive and retry.
+    # Only give up when the client has been unreachable for about two minutes.
+    $script:fails++
+    $statusItem.Text = 'нет связи с клиентом'
+    $notify.Text = 'Nurofen — нет связи'
+    $toggleItem.Text = 'Включить'
+    if ($script:fails -ge 40) {
+      $notify.Visible = $false
+      [System.Windows.Forms.Application]::Exit()
+    }
   }
 })
 $timer.Start()

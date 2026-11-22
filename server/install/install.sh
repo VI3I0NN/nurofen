@@ -166,7 +166,6 @@ log "public endpoint: $PUBLIC_HOST:$AWG_PORT/udp"
 NUROFEN_ROOT="$ROOT" NUROFEN_PUBLIC_HOST="$PUBLIC_HOST" \
   node "$APP/server/src/cli.js" init --host "$PUBLIC_HOST" --port "$AWG_PORT" --pool "$FREE_POOL" --api-port "$API_PORT" >/dev/null
 
-INVITE="$(NUROFEN_ROOT="$ROOT" node "$APP/server/src/cli.js" invite)"
 ADMIN_TOKEN="$(node -e 'const c=require(process.argv[1]); process.stdout.write(c.adminToken)' "$ROOT/nurofen.json")"
 
 # ------------------------------------------------------------------- systemd
@@ -229,12 +228,11 @@ cat <<EOF
 
   API / admin panel   http://${PUBLIC_HOST}:${API_PORT}/admin
   Admin token         ${ADMIN_TOKEN}
-  Invite code         ${INVITE}
   Tunnel endpoint     ${PUBLIC_HOST}:${AWG_PORT}/udp
   Extra ports         ${FREE_POOL:-none}
 
   Save the admin token: it is the only way into the panel.
-  Friends install the Nurofen client and enter the invite code above.
+  Friends install the Nurofen client; each user can create a network and share its name and password.
 
   Logs     journalctl -u nurofen -f
   CLI      cd $APP/server && node src/cli.js info

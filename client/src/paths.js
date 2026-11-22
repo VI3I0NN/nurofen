@@ -47,3 +47,28 @@ export function findAwg() {
   }
   return null;
 }
+
+/**
+ * The low-level `awg` CLI, which unlike the GUI executable supports
+ * `show <name> dump` and `set <name> peer …`. Falls back to the GUI path when
+ * only that one exists.
+ */
+export function findAwgCli() {
+  const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+  const dirs = [
+    path.join(programFiles, 'AmneziaWG'),
+    path.join(programFiles, 'WireGuard'),
+    path.join(programFiles, 'Amnezia'),
+  ];
+  for (const dir of dirs) {
+    for (const name of ['awg.exe', 'wireguard.exe']) {
+      const candidate = path.join(dir, name);
+      try {
+        if (fs.existsSync(candidate)) return candidate;
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return findAwg();
+}

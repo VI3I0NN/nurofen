@@ -1,0 +1,10 @@
+{
+  "name": "nurofen-desktop",
+  "productName": "Nurofen",
+  "version": "0.4.2",
+  "private": true,
+  "type": "module",
+  "description": "Nurofen desktop shell (Electron)",
+  "main": "main.js",
+  "license": "MIT"
+}

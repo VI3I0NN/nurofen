@@ -11,18 +11,26 @@ export function normalizeServer(value) {
   return url.replace(/\/+$/, '');
 }
 
-/** Server address baked in at install time, overridable by env. */
+/** The shared server address is baked in at install time, overridable by env. */
 export function defaultServerUrl() {
   if (process.env.NUROFEN_SERVER) return normalizeServer(process.env.NUROFEN_SERVER);
+  const raw = readDefaults();
+  if (raw.serverUrl) return normalizeServer(raw.serverUrl);
+  return '';
+}
+
+function readDefaults() {
   for (const candidate of [path.join(HERE, '..', 'defaults.json'), path.join(HERE, '..', '..', 'defaults.json')]) {
     try {
-      const raw = JSON.parse(fs.readFileSync(candidate, 'utf8'));
-      if (raw.serverUrl) return normalizeServer(raw.serverUrl);
+      // Windows PowerShell writes UTF-8 with a BOM; JSON.parse rejects it.
+      const text = fs.readFileSync(candidate, 'utf8').replace(/^\uFEFF/, '');
+      const raw = JSON.parse(text);
+      if (raw && typeof raw === 'object') return raw;
     } catch {
       // no defaults file
     }
   }
-  return '';
+  return {};
 }
 
 async function request(baseUrl, route, { method = 'GET', token, body, timeoutMs = 10000 } = {}) {
@@ -51,15 +59,23 @@ async function request(baseUrl, route, { method = 'GET', token, body, timeoutMs 
   return data;
 }
 
-export async function join({ serverUrl, invite, deviceName, publicKey, deviceId }) {
+export async function join({ serverUrl, mode, name, password, deviceName, publicKey, deviceId }) {
   return request(serverUrl, '/api/v1/join', {
     method: 'POST',
-    body: { invite, deviceName, publicKey, deviceId },
+    body: { mode, name, password, deviceName, publicKey, deviceId },
   });
 }
 
 export async function state(profile) {
   return request(profile.serverUrl, '/api/v1/state', { token: profile.token, timeoutMs: 6000 });
+}
+
+export async function rename(profile, name) {
+  return request(profile.serverUrl, '/api/v1/rename', { method: 'POST', token: profile.token, body: { name }, timeoutMs: 6000 });
+}
+
+export async function offline(profile) {
+  return request(profile.serverUrl, '/api/v1/offline', { method: 'POST', token: profile.token, timeoutMs: 6000 });
 }
 
 export async function heartbeat(profile, extra = {}) {

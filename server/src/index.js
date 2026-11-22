@@ -1,21 +1,44 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import path from 'node:path';
 import process from 'node:process';
-import { applyServer, applyPortPool, awgStatus, dump, down, syncPeers } from './awg.js';
-import { loadConfig, rootDir, stateFile, subnetInfo, writeConfig } from './config.js';
+import { fileURLToPath } from 'node:url';
 import {
-  findNetwork,
+  applyIsolation,
+  applyPortPool,
+  applyServer,
+  awgStatus,
+  down,
+  dump,
+  syncAddresses,
+  syncPeers,
+} from './awg.js';
+import { loadConfig, rootDir, stateFile, SUPERNET, writeConfig } from './config.js';
+import {
+  addDevice,
+  createNetwork,
+  deleteNetwork,
+  findNetworkById,
   findPeerByToken,
+  isValidKey,
   joinNetwork,
+  markOffline,
+  networkForPeer,
   peersOfNetwork,
+  publicNetwork,
   publicPeer,
+  renamePeer,
   revokePeer,
-  rotateInvite,
+  setBuildInfo,
+  setDirectInfo,
   setLanPort,
+  setNetworkPassword,
   touchPeer,
+  validatePassword,
 } from './network.js';
 import { json, RateLimiter, readJson, safeEqual, text } from './util.js';
 import { adminPage } from './admin-page.js';
+import { downloadPage } from './download-page.js';
 
 const ROOT = rootDir();
 let cfg = loadConfig(ROOT);
@@ -25,7 +48,7 @@ const log = {
   warn: (msg) => console.warn(`${new Date().toISOString()} ${msg}`),
 };
 
-const joinLimiter = new RateLimiter(10, 60_000);
+const joinLimiter = new RateLimiter(20, 60_000);
 setInterval(() => joinLimiter.prune(), 60_000).unref?.();
 
 function bearer(req) {
@@ -78,14 +101,13 @@ async function liveInfo() {
   return dump(cfg);
 }
 
-function peerView(req) {
+function networkView(network) {
+  return network ? { id: network.id, name: network.name, subnet: network.subnet } : null;
+}
+
+/** Everything a client needs to build its tunnel; the same for every network. */
+function serverView(req) {
   return {
-    network: {
-      id: cfg.networks[0].id,
-      name: cfg.networks[0].name,
-      subnet: subnetInfo(cfg).cidr,
-    },
-    invite: cfg.networks[0].invite,
     servers: [endpointHost(req)],
     ports: cfg.server.portPool,
     mtu: cfg.server.mtu,
@@ -95,6 +117,38 @@ function peerView(req) {
   };
 }
 
+function selfView(peer) {
+  return { id: peer.id, name: peer.name, ip: peer.ip };
+}
+
+function peerList(peer) {
+  const live = dumpCache;
+  const ownHost = endpointHostOf(live.peers.get(peer.publicKey)?.endpoint);
+  return peersOfNetwork(cfg, peer.networkId).map((item) => {
+    const info = live.peers.get(item.publicKey);
+    const sameNat = Boolean(ownHost) && item.id !== peer.id && endpointHostOf(info?.endpoint) === ownHost;
+    return {
+      ...publicPeer(item, info, { sameNat }),
+      self: item.id === peer.id,
+    };
+  });
+}
+
+/** `1.2.3.4:51820` / `[2001:db8::1]:51820` -> host part. */
+function endpointHostOf(value) {
+  const textValue = String(value || '');
+  if (!textValue) return '';
+  if (textValue.startsWith('[')) {
+    const end = textValue.indexOf(']');
+    return end > 0 ? textValue.slice(1, end) : '';
+  }
+  const colon = textValue.lastIndexOf(':');
+  return colon > 0 ? textValue.slice(0, colon) : textValue;
+}
+
+// dump() is async; handlers refresh this right before building a peer list.
+let dumpCache = { available: false, peers: new Map() };
+
 async function handleJoin(req, res) {
   const ip = clientIp(req);
   if (!joinLimiter.check(ip)) {
@@ -102,37 +156,40 @@ async function handleJoin(req, res) {
     return;
   }
   const body = await readJson(req);
-  const { network, peer, token } = joinNetwork(cfg, {
-    invite: body.invite,
-    name: body.deviceName,
+  const { network, peer, token, created } = joinNetwork(cfg, {
+    mode: body.mode === 'create' ? 'create' : 'join',
+    name: body.name,
+    password: body.password,
+    deviceName: body.deviceName,
     publicKey: body.publicKey,
     deviceId: body.deviceId,
   });
   save();
+  if (created) {
+    await syncAddresses(cfg, log);
+    await applyIsolation(cfg, log);
+  }
   await syncPeers(cfg, log);
 
-  const live = await liveInfo();
+  dumpCache = await liveInfo();
   json(res, 200, {
-    ...peerView(req),
-    network: { id: network.id, name: network.name, subnet: subnetInfo(cfg).cidr },
-    self: { id: peer.id, name: peer.name, ip: peer.ip },
+    ...serverView(req),
+    created,
+    network: networkView(network),
+    self: selfView(peer),
     token,
-    peers: peersOfNetwork(cfg, network.id).map((item) => ({
-      ...publicPeer(item, live.peers.get(item.publicKey)),
-      self: item.id === peer.id,
-    })),
+    peers: peerList(peer),
   });
 }
 
 async function handleState(req, res, peer) {
-  const live = await liveInfo();
+  dumpCache = await liveInfo();
+  const network = networkForPeer(cfg, peer);
   json(res, 200, {
-    ...peerView(req),
-    self: { id: peer.id, name: peer.name, ip: peer.ip },
-    peers: peersOfNetwork(cfg, peer.networkId).map((item) => ({
-      ...publicPeer(item, live.peers.get(item.publicKey)),
-      self: item.id === peer.id,
-    })),
+    ...serverView(req),
+    network: networkView(network),
+    self: selfView(peer),
+    peers: peerList(peer),
     tunnel: await awgStatus(cfg),
   });
 }
@@ -141,27 +198,64 @@ async function handleHeartbeat(req, res, peer) {
   const body = await readJson(req);
   touchPeer(peer);
   setLanPort(peer, body?.lanPort ?? null);
+  peer.direct = body?.direct === true;
+  setDirectInfo(peer, { port: body?.directPort, ips: body?.directIps });
+  setBuildInfo(peer, { helperVersion: body?.helperVersion, clientVersion: body?.clientVersion });
   save();
-  const live = await liveInfo();
-  json(res, 200, {
-    peers: peersOfNetwork(cfg, peer.networkId).map((item) => ({
-      ...publicPeer(item, live.peers.get(item.publicKey)),
-      self: item.id === peer.id,
-    })),
-  });
+  dumpCache = await liveInfo();
+  json(res, 200, { peers: peerList(peer) });
+}
+
+async function handleRename(req, res, peer) {
+  const body = await readJson(req);
+  renamePeer(peer, body.name);
+  save();
+  json(res, 200, { ok: true, self: selfView(peer) });
+}
+
+async function handleOffline(req, res, peer) {
+  markOffline(peer);
+  save();
+  json(res, 200, { ok: true });
 }
 
 async function handleKey(req, res, peer) {
   const body = await readJson(req);
-  const { isValidKey } = await import('./network.js');
   if (!isValidKey(body.publicKey)) {
     json(res, 400, { error: 'invalid_key' });
     return;
   }
-  peer.publicKey = String(body.publicKey).trim();
+  const value = String(body.publicKey).trim();
+  const conflict = cfg.peers.find((item) => !item.revoked && item.id !== peer.id && item.publicKey === value);
+  if (conflict) {
+    json(res, 409, { error: 'key_in_use' });
+    return;
+  }
+  peer.publicKey = value;
   save();
   await syncPeers(cfg, log);
   json(res, 200, { ok: true });
+}
+
+/** Another device for the caller's own network (kept for older clients). */
+async function handleAddDevice(req, res, peer) {
+  const body = await readJson(req);
+  const network = networkForPeer(cfg, peer);
+  if (!network) {
+    json(res, 404, { error: 'network_not_found' });
+    return;
+  }
+  const device = addDevice(cfg, network, {
+    name: body.deviceName,
+    publicKey: body.publicKey,
+  });
+  save();
+  await syncPeers(cfg, log);
+  json(res, 200, {
+    ...serverView(req),
+    network: networkView(network),
+    self: selfView(device),
+  });
 }
 
 async function handleLeave(req, res, peer) {
@@ -181,11 +275,10 @@ function requireAdmin(req, res) {
 
 async function handleAdminOverview(req, res) {
   if (!requireAdmin(req, res)) return;
-  const live = await liveInfo();
+  dumpCache = await liveInfo();
   json(res, 200, {
-    network: cfg.networks[0],
-    invite: cfg.networks[0].invite,
-    subnet: subnetInfo(cfg).cidr,
+    networks: cfg.networks.map((network) => publicNetwork(cfg, network)),
+    subnet: SUPERNET,
     server: {
       publicHost: cfg.server.publicHost || endpointHost(req),
       awgPort: cfg.server.awgPort,
@@ -197,15 +290,50 @@ async function handleAdminOverview(req, res) {
     awg: await awgStatus(cfg),
     peers: cfg.peers
       .filter((peer) => !peer.revoked)
-      .map((peer) => ({ ...publicPeer(peer, live.peers.get(peer.publicKey)), deviceId: peer.deviceId })),
+      .map((peer) => ({
+        ...publicPeer(peer, dumpCache.peers.get(peer.publicKey), { admin: true }),
+        deviceId: peer.deviceId,
+        network: networkView(networkForPeer(cfg, peer)),
+      })),
   });
 }
 
-async function handleAdminRotate(req, res) {
+async function handleAdminCreateNetwork(req, res) {
   if (!requireAdmin(req, res)) return;
-  const network = rotateInvite(cfg, cfg.networks[0].id);
+  const body = await readJson(req);
+  const network = createNetwork(cfg, { name: body.name, password: body.password });
   save();
-  json(res, 200, { invite: network.invite });
+  await syncAddresses(cfg, log);
+  await applyIsolation(cfg, log);
+  json(res, 200, { network: publicNetwork(cfg, network) });
+}
+
+async function handleAdminDeleteNetwork(req, res, networkId) {
+  if (!requireAdmin(req, res)) return;
+  const network = deleteNetwork(cfg, networkId);
+  if (!network) {
+    json(res, 404, { error: 'not_found' });
+    return;
+  }
+  save();
+  await syncPeers(cfg, log);
+  await syncAddresses(cfg, log);
+  await applyIsolation(cfg, log);
+  json(res, 200, { ok: true });
+}
+
+async function handleAdminPassword(req, res, networkId) {
+  if (!requireAdmin(req, res)) return;
+  const network = findNetworkById(cfg, networkId);
+  if (!network) {
+    json(res, 404, { error: 'not_found' });
+    return;
+  }
+  const body = await readJson(req);
+  const password = validatePassword(body.password);
+  setNetworkPassword(network, password);
+  save();
+  json(res, 200, { ok: true });
 }
 
 async function handleAdminKick(req, res, peerId) {
@@ -227,24 +355,82 @@ async function handleAdminRestart(req, res) {
   json(res, 200, { ok: true, result });
 }
 
+/**
+ * Prerequisites mirrored next to the app. Friends' installers fetch these
+ * first: GitHub and nodejs.org are not always reachable where the users are.
+ */
+const DL_DIR = process.env.NUROFEN_DL_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'dl');
+const DL_FILES = {
+  'node.zip': 'application/zip',
+  'amneziawg.msi': 'application/x-msi',
+  'NurofenSetup.exe': 'application/vnd.microsoft.portable-executable',
+  'client.zip': 'application/zip',
+};
+
+function handleDownload(req, res, params) {  const type = DL_FILES[params.name];
+  if (!type) {
+    json(res, 404, { error: 'not_found' });
+    return;
+  }
+  const file = path.join(DL_DIR, params.name);
+  const stat = fs.statSync(file, { throwIfNoEntry: false });
+  if (!stat) {
+    json(res, 404, { error: 'not_mirrored' });
+    return;
+  }
+  res.writeHead(200, {
+    'content-type': type,
+    'content-length': stat.size,
+    'content-disposition': `attachment; filename="${params.name}"`,
+    'x-content-type-options': 'nosniff',
+    'cache-control': 'no-store',
+  });
+  fs.createReadStream(file).pipe(res);
+}
+
+/** Version manifest produced by tools/build-installer.ps1. */
+function handleClientLatest(req, res) {
+  const file = path.join(DL_DIR, 'client.json');
+  const stat = fs.statSync(file, { throwIfNoEntry: false });
+  if (!stat) {
+    json(res, 200, { version: null });
+    return;
+  }
+  res.writeHead(200, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': stat.size,
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  });
+  fs.createReadStream(file).pipe(res);
+}
+
 const routes = [
   ['GET', '/healthz', async (req, res) => json(res, 200, { ok: true, service: 'nurofen' })],
+  ['GET', '/dl/:name', async (req, res, params) => handleDownload(req, res, params)],
+  ['GET', '/api/v1/client/latest', handleClientLatest],
 
   ['POST', '/api/v1/join', handleJoin],
 
   ['GET', '/api/v1/state', async (req, res, peer) => handleState(req, res, peer)],
   ['POST', '/api/v1/heartbeat', async (req, res, peer) => handleHeartbeat(req, res, peer)],
+  ['POST', '/api/v1/rename', handleRename],
+  ['POST', '/api/v1/offline', handleOffline],
   ['POST', '/api/v1/key', async (req, res, peer) => handleKey(req, res, peer)],
+  ['POST', '/api/v1/devices', async (req, res, peer) => handleAddDevice(req, res, peer)],
   ['POST', '/api/v1/leave', async (req, res, peer) => handleLeave(req, res, peer)],
 
   ['GET', '/api/v1/admin/overview', handleAdminOverview],
-  ['POST', '/api/v1/admin/invite/rotate', handleAdminRotate],
+  ['POST', '/api/v1/admin/networks', handleAdminCreateNetwork],
+  ['DELETE', '/api/v1/admin/networks/:id', async (req, res, params) => handleAdminDeleteNetwork(req, res, params.id)],
+  ['POST', '/api/v1/admin/networks/:id/password', async (req, res, params) => handleAdminPassword(req, res, params.id)],
   ['DELETE', '/api/v1/admin/peers/:id', async (req, res, params) => handleAdminKick(req, res, params.id)],
   ['POST', '/api/v1/admin/awg/restart', handleAdminRestart],
 
   ['GET', '/admin', async (req, res) => text(res, 200, adminPage, 'text/html; charset=utf-8')],
+  ['GET', '/download', async (req, res) => text(res, 200, downloadPage, 'text/html; charset=utf-8')],
   ['GET', '/', async (req, res) => {
-    res.writeHead(302, { location: '/admin' });
+    res.writeHead(302, { location: '/download' });
     res.end();
   }],
 ];
@@ -252,7 +438,8 @@ const routes = [
 function matchRoute(method, pathname) {
   const parts = pathname.split('/').filter(Boolean);
   for (const [routeMethod, pattern, handler] of routes) {
-    if (routeMethod !== method) continue;
+    // HEAD is answered by the GET handler; Node omits the body automatically.
+    if (routeMethod !== method && !(method === 'HEAD' && routeMethod === 'GET')) continue;
     const patternParts = pattern.split('/').filter(Boolean);
     if (patternParts.length !== parts.length) continue;
     const params = {};
@@ -280,9 +467,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const publicRoutes = new Set(['/healthz', '/api/v1/join', '/admin', '/']);
+  const publicRoutes = new Set(['/healthz', '/api/v1/join', '/api/v1/client/latest', '/admin', '/download', '/']);
   try {
-    if (!publicRoutes.has(url.pathname) && !url.pathname.startsWith('/api/v1/admin/')) {
+    if (!publicRoutes.has(url.pathname) && !url.pathname.startsWith('/dl/') && !url.pathname.startsWith('/api/v1/admin/')) {
       const peer = findPeerByToken(cfg, bearer(req));
       if (!peer) {
         json(res, 401, { error: 'unauthorized' });
@@ -300,13 +487,17 @@ const server = http.createServer(async (req, res) => {
 
 async function bootstrap() {
   log.info(`[nurofen] root: ${ROOT}`);
-  log.info(`[nurofen] network: ${cfg.networks[0].name} ${subnetInfo(cfg).cidr}`);
-  log.info(`[nurofen] invite code: ${cfg.networks[0].invite}`);
+  log.info(`[nurofen] supernet: ${SUPERNET}, networks: ${cfg.networks.length}`);
+  for (const network of cfg.networks) {
+    log.info(`[nurofen] network "${network.name}" ${network.subnet}`);
+  }
   if (!cfg.server.publicHost) {
     log.warn('[nurofen] server.publicHost is empty - clients will use the address they connected to');
   }
   await applyServer(cfg, log);
   await applyPortPool(cfg, log);
+  await syncAddresses(cfg, log);
+  await applyIsolation(cfg, log);
 
   const port = Number(process.env.NUROFEN_API_PORT || cfg.server.apiPort || 8787);
   const host = process.env.NUROFEN_API_HOST || cfg.server.apiHost || '0.0.0.0';

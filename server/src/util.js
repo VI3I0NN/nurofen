@@ -1,22 +1,51 @@
-import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
+import { randomBytes, timingSafeEqual, createHash, scryptSync } from 'node:crypto';
 
-const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-
-/** Human friendly invite code, e.g. "K7QM-3XR9". */
-export function inviteCode(length = 8) {
-  const bytes = randomBytes(length);
-  let out = '';
-  for (let i = 0; i < length; i += 1) {
-    out += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
-  }
-  return `${out.slice(0, 4)}-${out.slice(4)}`;
+/**
+ * Network names are human input: keep the spelling (including Cyrillic) for
+ * display, but compare them case- and whitespace-insensitively.
+ */
+export function cleanNetworkName(value) {
+  return String(value || '')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 32);
 }
 
-/** Normalizes user input: "k7qm 3xr9" -> "K7QM3XR9". */
-export function normalizeCode(input) {
-  return String(input || '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '');
+export function networkKey(value) {
+  return cleanNetworkName(value).normalize('NFKC').toLowerCase();
+}
+
+/**
+ * WireGuard keys are canonical base64 of 32 bytes. `wg` rejects keys whose
+ * padding bits are not zero, so accept only values it will actually load.
+ */
+export function isValidKey(value) {
+  if (typeof value !== 'string') return false;
+  const key = value.trim();
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(key)) return false;
+  const bytes = Buffer.from(key, 'base64');
+  if (bytes.length !== 32) return false;
+  if (bytes.equals(Buffer.alloc(32))) return false;
+  return bytes.toString('base64') === key;
+}
+
+/** scrypt keeps network passwords out of nurofen.json in readable form. */
+export function hashPassword(password) {
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(String(password), salt, 32).toString('hex');
+  return { salt, hash };
+}
+
+export function verifyPassword(password, salt, hash) {
+  if (!salt || !hash) return false;
+  try {
+    const expected = Buffer.from(String(hash), 'hex');
+    const actual = scryptSync(String(password), String(salt), expected.length);
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  } catch {
+    return false;
+  }
 }
 
 export function token(bytes = 32) {
