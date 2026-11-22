@@ -78,23 +78,23 @@ b { font-weight: 600; }
   align-self: stretch;
   display: flex;
   align-items: stretch;
+  justify-content: flex-end;
   gap: 4px;
   min-width: 0;
   position: relative;
   z-index: 40;
 }
 
-.menu { position: relative; display: flex; flex: 1; min-width: 0; }
+.menu { position: relative; display: flex; flex: 0 0 auto; }
 
 .menu-button {
   position: relative;
   display: inline-flex;
-  flex: 1;
+  flex: 0 0 44px;
+  width: 44px;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  min-width: 0;
-  padding: 0 6px;
+  padding: 0;
   border: 0;
   background: transparent;
   color: var(--muted);
@@ -102,6 +102,8 @@ b { font-weight: 600; }
   white-space: nowrap;
   transition: color .16s ease;
 }
+
+.menu-button span { display: none; }
 
 .menu-button svg {
   width: 19px;
@@ -115,9 +117,9 @@ b { font-weight: 600; }
 
 .menu-button::after {
   position: absolute;
-  right: 6px;
+  right: 10px;
   bottom: -1px;
-  left: 6px;
+  left: 10px;
   height: 2px;
   background: transparent;
   content: '';
@@ -132,7 +134,7 @@ b { font-weight: 600; }
   display: none;
   position: absolute;
   top: calc(100% - 2px);
-  left: 0;
+  right: 0;
   min-width: 210px;
   padding: 5px;
   background: var(--surface);
@@ -141,8 +143,6 @@ b { font-weight: 600; }
   box-shadow: 0 12px 28px rgba(0, 0, 0, .28);
   z-index: 60;
 }
-
-.menu:last-child > .dropdown { left: auto; right: 0; }
 
 .menu.open > .dropdown { display: block; }
 
@@ -932,7 +932,6 @@ body.compact-peers .members-title { font-size: 18px; }
 @media (max-width: 560px) {
   .app-header { min-height: 80px; padding: 8px 16px 0; gap: 10px; }
   .brand { font-size: 16px; }
-  .menu-button { gap: 6px; font-size: 12.5px; }
   .app { padding: 16px; gap: 14px; }
   .hero { min-height: 200px; gap: 16px; padding: 18px; border-radius: 18px; }
   .power-ring { width: 96px; height: 96px; }
@@ -953,7 +952,7 @@ body.compact-peers .members-title { font-size: 18px; }
   .app-header { padding-right: 12px; }
   .brand span { display: none; }
   .brand-mark { width: 22px; height: 22px; }
-  .menu-button { gap: 5px; padding: 0 4px; font-size: 12px; }
+  .menu-button { padding: 0 4px; }
   .menu-button svg { width: 18px; height: 18px; }
   .app { padding: 12px; gap: 12px; }
   .hero { min-height: 196px; gap: 16px; padding: 18px 16px; }
@@ -985,11 +984,11 @@ body.compact-peers .members-title { font-size: 18px; }
 }
 
 @media (max-width: 360px) {
-  .menu-button span { display: none; }
-  .menu-button { min-width: 44px; }
-  .menubar { justify-content: flex-end; gap: 2px; }
-  .menu { flex: 0 0 auto; }
-  .dropdown { left: auto; right: 0; }
+  .app-header { min-height: 72px; gap: 8px; padding: 8px 12px 0; }
+  .brand { font-size: 15px; }
+  .brand span { display: inline; }
+  .menubar { gap: 2px; }
+  .app { padding: 10px 12px; gap: 10px; }
   .hero { min-height: 0; gap: 12px; padding: 16px 14px; }
   .power-ring { width: 80px; height: 80px; }
   .power-icon { width: 24px; height: 24px; }

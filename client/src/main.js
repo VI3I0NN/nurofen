@@ -1322,8 +1322,8 @@ function browserPath() {
   return null;
 }
 
-const WINDOW_WIDTH = 400;
-const WINDOW_HEIGHT = 740;
+const WINDOW_WIDTH = 340;
+const WINDOW_HEIGHT = 680;
 
 function windowProfileDir() {
   const dir = path.join(dataDir(), 'window');
