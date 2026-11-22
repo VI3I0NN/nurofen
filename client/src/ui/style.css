@@ -3,20 +3,20 @@
    colours, shapes and controls are Nurofen's own. */
 
 @font-face {
-  font-family: "Pixelify Sans";
+  font-family: "Handjet";
   font-style: normal;
   font-weight: 400 700;
   font-display: swap;
-  src: url("fonts/pixelify-cyrillic.woff2") format("woff2");
+  src: url("fonts/handjet-cyrillic.woff2") format("woff2");
   unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
 }
 
 @font-face {
-  font-family: "Pixelify Sans";
+  font-family: "Handjet";
   font-style: normal;
   font-weight: 400 700;
   font-display: swap;
-  src: url("fonts/pixelify-latin.woff2") format("woff2");
+  src: url("fonts/handjet-latin.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
     U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
     U+FEFF, U+FFFD;
@@ -44,7 +44,7 @@
   --amber: #e7a72e;
   --amber-dim: #2b2418;
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
-  --pixel: "Pixelify Sans", "Segoe UI Variable", "Segoe UI", sans-serif;
+  --pixel: "Handjet", "Segoe UI Variable", "Segoe UI", sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -66,36 +66,18 @@ body {
 button { font: inherit; color: inherit; cursor: pointer; }
 code { font-family: var(--mono); font-size: 11.5px; }
 
-/* Pixel display face: navigation, headings, names and statuses. Long
-   explanatory copy stays in the system font so it remains easy to read. */
+/* Pixel accent face: only the brand and large headings. Names, addresses,
+   controls and body copy stay in the system font for readability. */
 .brand,
 .join-name,
-.join-sub,
 h1,
-.mode-option,
-button,
-.net-tab-name,
 .power-state,
-.hero-self,
-.hero-ip,
-.pill,
-.direct-label,
-.direct-hint,
-.beta,
 .members-title,
-.members-count,
-.peer .name,
-.peer .ip,
-.peer-connection,
-.statusbar,
-.toast,
-.modal-head h2,
-.check-row b,
-.settings-line,
 .settings-group h3,
-.about-name,
-.field > span {
+.modal-head h2,
+.about-name {
   font-family: var(--pixel);
+  letter-spacing: .01em;
 }
 b { font-weight: 600; }
 .muted { color: var(--muted); }
@@ -751,9 +733,9 @@ b { font-weight: 600; }
 
 .status-network { flex: 1 1 auto; display: inline-flex; align-items: center; gap: 8px; }
 .status-ico { flex: 0 0 auto; width: 16px; height: 16px; fill: none; stroke: var(--faint); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.statusbar #statusLeft { font-variant-numeric: tabular-nums; }
+.statusbar #statusLeft { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .statusbar #statusCenter { flex: 0 1 auto; color: var(--faint); }
-.statusbar #statusRight { flex: 0 0 auto; color: var(--faint); }
+.statusbar #statusRight { flex: 0 0 auto; font-family: var(--mono); color: var(--faint); }
 .statusbar #statusRight.update { color: var(--accent); }
 
 .force-update {
