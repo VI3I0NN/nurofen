@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Builds dist\NurofenSetup.exe — the client installer you give to friends.
 
@@ -13,7 +13,7 @@
 param(
   [string]$Server = 'http://201.58.187.214:8787',
   [string]$Output = '',
-  [string]$Notes = 'Новый логотип nurofen с зелёным кольцом вместо «o» и новая иконка приложения.'
+  [string]$Notes = 'Google Sans в интерфейсе и Consolas для адресов, пинга и версий.'
 )
 
 $ErrorActionPreference = 'Stop'

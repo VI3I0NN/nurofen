@@ -3,60 +3,20 @@
    colours, shapes and controls are Nurofen's own. */
 
 @font-face {
-  font-family: "IBM Plex Sans";
+  font-family: "Google Sans";
   font-style: normal;
   font-weight: 400 600;
   font-display: swap;
-  src: url("fonts/ibm-plex-sans-cyrillic.woff2") format("woff2");
+  src: url("fonts/google-sans-cyrillic.woff2") format("woff2");
   unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
 }
 
 @font-face {
-  font-family: "IBM Plex Sans";
+  font-family: "Google Sans";
   font-style: normal;
   font-weight: 400 600;
   font-display: swap;
-  src: url("fonts/ibm-plex-sans-latin.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
-    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
-    U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("fonts/ibm-plex-mono-cyrillic-400.woff2") format("woff2");
-  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
-}
-
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("fonts/ibm-plex-mono-latin-400.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
-    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
-    U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("fonts/ibm-plex-mono-cyrillic-500.woff2") format("woff2");
-  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
-}
-
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("fonts/ibm-plex-mono-latin-500.woff2") format("woff2");
+  src: url("fonts/google-sans-latin.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
     U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
     U+FEFF, U+FFFD;
@@ -83,7 +43,7 @@
   --red-line: #513033;
   --amber: #e7a72e;
   --amber-dim: #2b2418;
-  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+  --mono: Consolas, "Cascadia Mono", ui-monospace, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -94,7 +54,7 @@ html, body { height: 100%; margin: 0; }
 body {
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.45 "IBM Plex Sans", "Segoe UI Variable", "Segoe UI", -apple-system, Roboto, sans-serif;
+  font: 13px/1.45 "Google Sans", "Segoe UI Variable", "Segoe UI", -apple-system, Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   display: flex;
   flex-direction: column;
@@ -340,7 +300,7 @@ b { font-weight: 600; }
   background: var(--accent-strong);
   color: #06120c;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   transition: background-color .16s ease, border-color .16s ease;
 }
 
