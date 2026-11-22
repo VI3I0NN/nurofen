@@ -19,18 +19,23 @@ const BG_BOTTOM = [11, 15, 20];
 const MARK = [61, 220, 132];
 const EDGE = [34, 44, 56];
 
-// Glyph geometry in a 24x24 box, matching the UI header mark.
-const NODES = [
-  [5, 17.5, 2.35],
-  [12, 5, 2.35],
-  [19, 17.5, 2.35],
-];
-const EDGES = [
-  [5, 17.5, 12, 5],
-  [12, 5, 19, 17.5],
-  [5, 17.5, 19, 17.5],
-];
-const STROKE = 1.85;
+// Glyph geometry in a 24x24 box: lowercase "n" plus the ring that replaces
+// "o" in the "nurofen" wordmark.
+const STEM = 2.7;
+const STEM_R = STEM / 2;
+const ARCH = { cx: 7.6, cy: 9.7, r: 4 };
+const RING = { cx: 18.4, cy: 12.3, r: 3.4, stroke: 1.9 };
+
+function insideGlyph(x, y) {
+  if (distToSegment(x, y, 3.6, 9.7, 3.6, 17.7) <= STEM_R) return true;
+  if (distToSegment(x, y, 11.6, 9.7, 11.6, 17.7) <= STEM_R) return true;
+  const adx = x - ARCH.cx;
+  const ady = y - ARCH.cy;
+  if (ady <= 0 && Math.abs(Math.hypot(adx, ady) - ARCH.r) <= STEM_R) return true;
+  const rd = Math.hypot(x - RING.cx, y - RING.cy);
+  if (Math.abs(rd - RING.r) <= RING.stroke / 2) return true;
+  return false;
+}
 
 function roundedRect(x, y, size, radius) {
   const r = radius;
@@ -95,15 +100,7 @@ function renderRGBA(size) {
           // glyph in 24x24 space
           const gx = px / scale;
           const gy = py / scale;
-          let inGlyph = false;
-          for (const [nx, ny, nr] of NODES) {
-            if (Math.hypot(gx - nx, gy - ny) <= nr) inGlyph = true;
-          }
-          if (!inGlyph) {
-            for (const [x1, y1, x2, y2] of EDGES) {
-              if (distToSegment(gx, gy, x1, y1, x2, y2) <= STROKE / 2) inGlyph = true;
-            }
-          }
+          const inGlyph = insideGlyph(gx, gy);
 
           const out = inGlyph ? MARK : color;
           if (inGlyph) alpha = 255;

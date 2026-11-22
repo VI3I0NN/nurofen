@@ -265,7 +265,7 @@ function renderPeers() {
         <div class="peer ${online ? 'online' : ''}">
           <span class="avatar ${peerTone(peer.name)}">${escapeHtml(initials(peer.name))}</span>
           <div class="peer-main">
-            <span class="name">${escapeHtml(peer.name)}${peer.self ? '<span class="tag-self">вы</span>' : ''}</span>
+            <span class="name"><span class="name-text">${escapeHtml(peer.name)}</span>${peer.self ? '<span class="tag-self">вы</span>' : ''}</span>
             <span class="ip">${escapeHtml(peer.ip)}</span>
           </div>
           <span class="peer-connection"><span class="presence ${online ? 'online' : ''}">${online ? 'В сети' : 'Не в сети'}</span><span class="ping ${pingClass}" title="Время ответа участника; нет ответа может означать блокировку ICMP">${pingText}${routeText}</span></span>

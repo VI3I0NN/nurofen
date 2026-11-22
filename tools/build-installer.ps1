@@ -13,7 +13,7 @@
 param(
   [string]$Server = 'http://201.58.187.214:8787',
   [string]$Output = '',
-  [string]$Notes = 'Компактная верхняя панель и одно окно закрытия в отдельных окнах; шрифт IBM Plex Sans и IBM Plex Mono.'
+  [string]$Notes = 'Новый логотип nurofen с зелёным кольцом вместо «o» и новая иконка приложения.'
 )
 
 $ErrorActionPreference = 'Stop'

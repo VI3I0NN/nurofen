@@ -10,13 +10,7 @@
 <body>
   <header class="app-header">
     <a class="brand" href="#" aria-label="Nurofen" onclick="return false">
-      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M5 17.5 12 5l7 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="5" cy="17.5" r="2" fill="currentColor"/>
-        <circle cx="19" cy="17.5" r="2" fill="currentColor"/>
-        <circle cx="12" cy="5" r="2" fill="currentColor"/>
-      </svg>
-      <span>Nurofen</span>
+      <span class="brand-word" aria-hidden="true">nur<span class="brand-ring"></span>fen</span>
     </a>
 
     <nav class="menubar" aria-label="Главная навигация">
@@ -64,15 +58,8 @@
       <button type="button" class="back" id="joinBack" hidden>← Назад</button>
 
       <div class="join-brand">
-        <svg class="join-mark" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5 17.5 12 5l7 12.5" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"/>
-          <circle cx="5" cy="17.5" r="2.4" fill="currentColor"/>
-          <circle cx="19" cy="17.5" r="2.4" fill="currentColor"/>
-          <circle cx="12" cy="5" r="2.4" fill="currentColor"/>
-        </svg>
         <div>
-          <div class="join-name">Nurofen</div>
+          <div class="join-name">nur<span class="brand-ring"></span>fen</div>
           <div class="join-sub">ваши сети рядом</div>
         </div>
       </div>
@@ -236,7 +223,7 @@
         </div>
 
         <div id="paneAbout" hidden>
-          <p class="about-name">Nurofen</p>
+          <p class="about-name">nur<span class="brand-ring"></span>fen</p>
           <p class="muted">Виртуальная локальная сеть на AmneziaWG. Можно держать несколько
             сетей сразу: у каждой свой адрес, участники и пароль.</p>
           <dl class="kv">

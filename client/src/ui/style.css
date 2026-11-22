@@ -124,15 +124,24 @@ b { font-weight: 600; }
 .brand {
   display: inline-flex;
   flex: 0 0 auto;
-  align-items: center;
-  gap: 9px;
+  align-items: baseline;
   color: var(--text);
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 600;
+  line-height: 1;
+  letter-spacing: -.045em;
   text-decoration: none;
 }
 
-.brand-mark { width: 24px; height: 24px; color: var(--muted); }
+.brand-ring {
+  display: inline-block;
+  width: .56em;
+  height: .56em;
+  margin: 0 .02em;
+  border: .13em solid var(--accent);
+  border-radius: 50%;
+  transform: translateY(.03em);
+}
 
 .menubar {
   flex: 1;
@@ -264,8 +273,7 @@ b { font-weight: 600; }
 .back:hover { color: var(--accent); }
 
 .join-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-.join-mark { width: 34px; height: 34px; color: var(--muted); flex: 0 0 auto; }
-.join-name { font-size: 18px; font-weight: 600; }
+.join-name { font-size: 22px; font-weight: 600; letter-spacing: -.045em; }
 .join-sub { font-size: 12px; color: var(--muted); }
 
 .join-card h1 { margin: 0 0 6px; font-size: 24px; font-weight: 600; }
@@ -664,8 +672,13 @@ b { font-weight: 600; }
   display: flex;
   align-items: center;
   gap: 7px;
+  min-width: 0;
   font-size: 16px;
   font-weight: 600;
+}
+
+.peer .name-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1025,8 +1038,6 @@ body.compact-peers .members-title { font-size: 18px; }
 
 @media (max-width: 430px) {
   .app-header { padding-right: 12px; }
-  .brand span { display: none; }
-  .brand-mark { width: 22px; height: 22px; }
   .menu-button { padding: 0 4px; }
   .menu-button svg { width: 18px; height: 18px; }
   .app { padding: 12px; gap: 12px; }
@@ -1058,8 +1069,7 @@ body.compact-peers .members-title { font-size: 18px; }
 
 @media (max-width: 360px) {
   .app-header { min-height: 48px; gap: 8px; padding: 0 12px; }
-  .brand { font-size: 15px; }
-  .brand span { display: inline; }
+  .brand { font-size: 16px; }
   .menubar { gap: 2px; }
   .app { padding: 10px 12px; gap: 10px; }
   .hero { min-height: 0; gap: 12px; padding: 16px 14px; }
