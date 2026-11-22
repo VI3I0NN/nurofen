@@ -16,7 +16,18 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT = path.resolve(HERE, '..');
 const UI_URL = 'http://127.0.0.1:39391/';
+const UI_ORIGIN = new URL(UI_URL).origin;
 const START_HIDDEN = process.argv.includes('--hidden') || process.argv.includes('--no-window');
+
+// Utility panes open as small standalone windows instead of covering the
+// connection screen. Keep their sizes fixed like the main window.
+const TOOL_WINDOWS = {
+  nickname: { width: 340, height: 300, title: 'Изменить ник' },
+  settings: { width: 360, height: 560, title: 'Настройки' },
+  update: { width: 360, height: 560, title: 'Обновления' },
+  diagnostics: { width: 400, height: 600, title: 'Диагностика' },
+  about: { width: 340, height: 400, title: 'О программе' },
+};
 
 const ICON = [path.join(CLIENT, 'assets', 'nurofen.ico'), path.join(CLIENT, 'src', 'ui', 'nurofen.ico')]
   .find((candidate) => {
@@ -38,6 +49,51 @@ let balloonShown = false;
 
 app.setName('Nurofen');
 app.setAppUserModelId('Nurofen');
+
+// Every window opened by the UI is a tool window. Anything else is denied.
+app.on('web-contents-created', (event, contents) => {
+  contents.setWindowOpenHandler(({ url }) => {
+    let parsed = null;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { action: 'deny' };
+    }
+    const kind = parsed.searchParams.get('tool');
+    const tool = kind ? TOOL_WINDOWS[kind] : null;
+    if (parsed.origin !== UI_ORIGIN || !tool) return { action: 'deny' };
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        width: tool.width,
+        height: tool.height,
+        resizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        show: false,
+        title: `${tool.title} — Nurofen`,
+        icon: ICON || undefined,
+        backgroundColor: '#0b0d10',
+        autoHideMenuBar: true,
+        webPreferences: {
+          contextIsolation: true,
+          sandbox: true,
+          nodeIntegration: false,
+          spellcheck: false,
+          devTools: false,
+        },
+      },
+    };
+  });
+
+  contents.on('did-create-window', (child) => {
+    child.setMenu(null);
+    child.center();
+    child.once('ready-to-show', () => {
+      if (!child.isDestroyed()) child.show();
+    });
+  });
+});
 
 function log(message) {
   try {

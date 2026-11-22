@@ -15,6 +15,17 @@ const PANES = {
   about: ['paneAbout', 'О программе'],
 };
 
+// Settings, updates and the other utility panes live in their own windows.
+// The query string selects the pane when such a window loads this page.
+const TOOL_KIND = new URLSearchParams(location.search).get('tool');
+const TOOL_SIZES = {
+  nickname: [340, 300],
+  settings: [360, 560],
+  update: [360, 560],
+  diagnostics: [400, 600],
+  about: [340, 400],
+};
+
 const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
 
 let state = null;
@@ -302,6 +313,16 @@ function renderMenu() {
 
 /* ------------------------------------------------------------------- modal */
 
+function openTool(kind) {
+  if (!PANES[kind]) return;
+  const [width, height] = TOOL_SIZES[kind] || [360, 560];
+  const url = `?tool=${encodeURIComponent(kind)}`;
+  const name = `nurofen-${kind}`;
+  const features = `popup=yes,width=${width},height=${height}`;
+  const existing = window.open(url, name, features);
+  if (existing) existing.focus();
+}
+
 function openModal(kind) {
   if (kind === 'nickname') {
     $('nicknameInput').value = state?.deviceName || '';
@@ -320,6 +341,10 @@ function openModal(kind) {
 }
 
 function closeModal() {
+  if (TOOL_KIND) {
+    window.close();
+    return;
+  }
   modalKind = null;
   $('modal').hidden = true;
 }
@@ -495,7 +520,7 @@ function updateJoinMode() {
 /* ------------------------------------------------------------------ events */
 
 $('powerBtn').addEventListener('click', toggleConnection);
-$('editNickBtn').addEventListener('click', () => openModal('nickname'));
+$('editNickBtn').addEventListener('click', () => openTool('nickname'));
 $('addNetBtn').addEventListener('click', openJoin);
 $('joinBack').addEventListener('click', closeJoin);
 
@@ -588,11 +613,11 @@ document.querySelectorAll('[data-action]').forEach((button) => {
     closeMenus();
     if (action === 'toggle') toggleConnection();
     else if (action === 'add') openJoin();
-    else if (action === 'nickname') openModal('nickname');
-    else if (action === 'update') openModal('update');
-    else if (action === 'diagnostics') openModal('diagnostics');
-    else if (action === 'settings') openModal('settings');
-    else if (action === 'about') openModal('about');
+    else if (action === 'nickname') openTool('nickname');
+    else if (action === 'update') openTool('update');
+    else if (action === 'diagnostics') openTool('diagnostics');
+    else if (action === 'settings') openTool('settings');
+    else if (action === 'about') openTool('about');
     else if (action === 'leave') leaveNetwork();
     else if (action === 'quit') api('/api/quit');
   });
@@ -650,7 +675,7 @@ $('upForceHelper').addEventListener('click', () => forceHelperUpdate($('upForceH
 $('setCompact').addEventListener('change', (event) => saveSettings({ compactPeers: event.target.checked }));
 $('setAutoConnect').addEventListener('change', (event) => saveSettings({ autoConnect: event.target.checked }));
 $('setDirect').addEventListener('change', (event) => saveDirect(event.target.checked));
-$('setNickname').addEventListener('click', () => openModal('nickname'));
+$('setNickname').addEventListener('click', () => openTool('nickname'));
 
 $('nicknameSave').addEventListener('click', async () => {
   $('nicknameSave').disabled = true;
@@ -703,6 +728,12 @@ async function poll() {
   } finally {
     polling = false;
   }
+}
+
+if (TOOL_KIND && PANES[TOOL_KIND]) {
+  document.body.classList.add('tool-window');
+  document.title = `${PANES[TOOL_KIND][1]} — Nurofen`;
+  openModal(TOOL_KIND);
 }
 
 poll();
