@@ -13,7 +13,7 @@
 param(
   [string]$Server = 'http://201.58.187.214:8787',
   [string]$Output = '',
-  [string]$Notes = 'Кнопка «Зайти»: запись в список серверов запущенного Minecraft и понятная подсказка.'
+  [string]$Notes = 'Исправлена запись servers.dat: Minecraft снова видит добавленный сервер.'
 )
 
 $ErrorActionPreference = 'Stop'

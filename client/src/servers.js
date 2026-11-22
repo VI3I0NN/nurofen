@@ -13,10 +13,33 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { TAG, byte, compound, gunzipNbt, gzipNbt, list, string } from './nbt.js';
+import { TAG, byte, compound, gunzipNbt, list, parseNbt, string, writeNbt } from './nbt.js';
 import { activeGameDir } from './minecraftPaths.js';
 
 const MAX_SERVERS = 64;
+
+/**
+ * `servers.dat` is plain NBT, not gzip: Minecraft reads it with
+ * `NbtIo.read` and refuses anything else ("Invalid tag id: 31" — the gzip
+ * magic byte). Copies written by Nurofen 0.4.26 were gzipped by mistake, so
+ * reading accepts both and every write is plain.
+ */
+function decode(buffer) {
+  return buffer[0] === 0x1f && buffer[1] === 0x8b ? gunzipNbt(buffer) : parseNbt(buffer);
+}
+
+function toServers(root) {
+  const raw = root?.value?.servers?.value?.items || [];
+  return raw
+    .filter((item) => item.type === TAG.COMPOUND && item.value)
+    .map((item) => ({
+      name: item.value.name?.value ?? '',
+      ip: item.value.ip?.value ?? '',
+      icon: item.value.icon?.value ?? '',
+      acceptTextures: Number(item.value.acceptTextures?.value ?? 0),
+      hidden: Number(item.value.hidden?.value ?? 0),
+    }));
+}
 
 /** `servers.dat` of the configured or auto-detected game folder, or null. */
 export function serversDatPath(configuredDir = '') {
@@ -27,29 +50,25 @@ export function serversDatPath(configuredDir = '') {
 /**
  * Reads the current list. A missing or unreadable file is not an error: the
  * game creates it on first save, and creating it ourselves is exactly what
- * makes "add to list" work on a fresh install.
+ * makes "add to list" work on a fresh install. When the file is broken, the
+ * game's own `servers.dat_old` is used as the base so the player's list is
+ * not wiped.
  */
 export function readServers(configuredDir = '') {
   const file = serversDatPath(configuredDir);
   if (!file) return { servers: [], file: null, fresh: true };
   let root;
   try {
-    root = gunzipNbt(fs.readFileSync(file));
+    root = decode(fs.readFileSync(file));
   } catch {
-    return { servers: [], file, fresh: true };
+    try {
+      const backup = decode(fs.readFileSync(`${file}_old`));
+      return { servers: toServers(backup), file, root: backup, fresh: true, recovered: true };
+    } catch {
+      return { servers: [], file, fresh: true };
+    }
   }
-  const listNode = root.value?.servers;
-  const raw = listNode?.value?.items || [];
-  const servers = raw
-    .filter((item) => item.type === TAG.COMPOUND && item.value)
-    .map((item) => ({
-      name: item.value.name?.value ?? '',
-      ip: item.value.ip?.value ?? '',
-      icon: item.value.icon?.value ?? '',
-      acceptTextures: Number(item.value.acceptTextures?.value ?? 0),
-      hidden: Number(item.value.hidden?.value ?? 0),
-    }));
-  return { servers, file, root, fresh: false };
+  return { servers: toServers(root), file, root, fresh: false };
 }
 
 function entry({ name, ip, icon, acceptTextures, hidden }) {
@@ -83,7 +102,7 @@ export function upsertServer({ name, ip, aliases = [], dir = '' }) {
   next.value.servers = list(TAG.COMPOUND, merged.map(entry));
 
   const temp = `${file}.nurofen.tmp`;
-  fs.writeFileSync(temp, gzipNbt(next));
+  fs.writeFileSync(temp, writeNbt(next));
   try {
     // Keep one generation back: a corrupt player list is a bad way to repay
     // someone who only wanted to join a world.
