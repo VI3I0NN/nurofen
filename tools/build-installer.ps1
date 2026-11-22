@@ -13,7 +13,7 @@
 param(
   [string]$Server = 'http://201.58.187.214:8787',
   [string]$Output = '',
-  [string]$Notes = 'Шрифт IBM Plex Sans и IBM Plex Mono; настройки, обновления и диагностика открываются в отдельных окнах.'
+  [string]$Notes = 'Компактная верхняя панель и одно окно закрытия в отдельных окнах; шрифт IBM Plex Sans и IBM Plex Mono.'
 )
 
 $ErrorActionPreference = 'Stop'
