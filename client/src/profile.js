@@ -10,6 +10,7 @@ const DEFAULT = {
   settings: {
     compactPeers: true,
     autoConnect: true,
+    minecraftDir: '',
   },
   networks: [],
 };

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage, session } from 'electron';
+import { app, BrowserWindow, Menu, Tray, nativeImage, session, dialog } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -343,6 +343,17 @@ if (!app.requestSingleInstanceLock()) {
     },
     quit() {
       quitApp();
+    },
+    async pickDirectory() {
+      const options = {
+        title: 'Папка Minecraft',
+        buttonLabel: 'Выбрать',
+        properties: ['openDirectory'],
+      };
+      const parent = win && !win.isDestroyed() ? win : null;
+      const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+      if (result.canceled || !result.filePaths?.length) return '';
+      return result.filePaths[0];
     },
     restart() {
       if (quittingStarted) return;

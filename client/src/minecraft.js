@@ -1,11 +1,5 @@
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-
-const LOG_CANDIDATES = [
-  path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), '.minecraft', 'logs', 'latest.log'),
-  path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'PrismLauncher', 'instances'),
-];
+import { findLatestLog } from './minecraftPaths.js';
 
 const PORT_PATTERNS = [
   /Started serving on (\d{2,5})/i,
@@ -34,12 +28,11 @@ function tail(file, bytes = 120_000) {
  * the only reliable, version independent way to know it without touching the
  * game, so the client can show friends the exact address to type.
  */
-export function detectLanPort() {
-  const logPath = LOG_CANDIDATES[0];
-  const text = tail(logPath);
-  if (!text) return null;
+export function detectLanPort(configuredDir = '') {
+  const found = findLatestLog(configuredDir);
+  if (!found) return null;
 
-  const lines = text.split(/\r?\n/).slice(-400);
+  const lines = tail(found.file).split(/\r?\n/).slice(-400);
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     const line = lines[i];
     if (/Stopping server|Stopping internal server/i.test(line)) {
@@ -57,7 +50,7 @@ export function detectLanPort() {
   return null;
 }
 
-/** Where a vanilla launcher keeps its logs, used by the diagnostics panel. */
-export function minecraftLogPath() {
-  return LOG_CANDIDATES[0];
+/** Where the running game keeps its log, used by the diagnostics panel. */
+export function minecraftLogPath(configuredDir = '') {
+  return findLatestLog(configuredDir)?.file || null;
 }

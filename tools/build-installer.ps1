@@ -13,7 +13,7 @@
 param(
   [string]$Server = 'http://201.58.187.214:8787',
   [string]$Output = '',
-  [string]$Notes = 'Minecraft: кнопка «Зайти» у открытого мира и адрес своего мира. В строке состояния видно доступное обновление.'
+  [string]$Notes = 'Путь к папке Minecraft: автоопределение популярных лаунчеров и выбор папки вручную.'
 )
 
 $ErrorActionPreference = 'Stop'

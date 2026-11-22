@@ -622,6 +622,37 @@ b { font-weight: 600; }
 
 .mc-hint { margin: 3px 0 0; color: var(--muted); font-size: 11.5px; }
 
+.mc-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.mc-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.mc-link {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+}
+
+.mc-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+
 .members {
   flex: 0 0 auto;
   border: 1px solid var(--line);
@@ -1026,6 +1057,41 @@ body.tool-window .modal-body { flex: 1 1 auto; min-height: 0; }
 .settings-line > span { color: var(--muted); }
 .settings-line > b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slim-ghost { padding: 4px 10px; font-size: 12px; }
+
+.mc-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.mc-input:focus { border-color: var(--accent-line); outline: none; }
+.mc-input::placeholder { color: var(--faint); font-family: "Google Sans", "Segoe UI", sans-serif; }
+
+.mc-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+.mc-found { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.mc-found-title { color: var(--faint); font-size: 11px; }
+
+.mc-found-item {
+  padding: 5px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-found-item:hover { border-color: var(--accent-line); background: var(--surface-2); }
 
 /* ------------------------------------------------- compact participants */
 body.compact-peers .peer { min-height: 52px; padding-top: 6px; padding-bottom: 6px; }

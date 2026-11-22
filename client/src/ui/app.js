@@ -36,6 +36,9 @@ let joining = false;
 let polling = false;
 let modalKind = null;
 let toastTimer = null;
+// The settings window polls every couple of seconds; never overwrite a path
+// the user is typing or has just picked but not saved yet.
+let mcPathDirty = false;
 
 async function api(route, body) {
   const res = await fetch(route, {
@@ -221,19 +224,28 @@ function renderDirect() {
 function renderMinecraft() {
   const panel = $('mcPanel');
   const installed = state?.minecraftInstalled === true;
+  const mc = state?.minecraft || {};
   panel.hidden = false;
+
+  const pathLabel = $('mcPath');
+  const shown = mc.dir || mc.configured || '';
+  pathLabel.textContent = shown;
+  pathLabel.title = shown;
+  pathLabel.hidden = !shown;
+
   if (!installed) {
     $('mcState').textContent = 'не найден';
     $('mcState').classList.remove('on');
     $('mcWorld').hidden = true;
     $('mcHint').hidden = false;
-    $('mcHint').textContent = 'Minecraft не найден на этом компьютере.';
+    $('mcHint').textContent = mc.configured
+      ? 'В указанной папке Minecraft не найден — проверьте путь в настройках.'
+      : 'Minecraft не найден на этом компьютере.';
     return;
   }
 
   const net = activeNetwork();
-  const mc = state.minecraft;
-  const open = Boolean(mc?.port) && net?.status === 'connected' && Boolean(net?.self?.ip);
+  const open = Boolean(mc.port) && net?.status === 'connected' && Boolean(net?.self?.ip);
   $('mcState').textContent = open ? 'мир открыт' : 'не открыт';
   $('mcState').classList.toggle('on', open);
   $('mcWorld').hidden = !open;
@@ -409,6 +421,22 @@ function renderSettings() {
   $('setDirect').checked = Boolean(net?.direct);
   $('setDirect').disabled = !net;
   $('setNetwork').textContent = net?.network?.name || '—';
+
+  const mc = state.minecraft || {};
+  const input = $('setMcPath');
+  if (!mcPathDirty && document.activeElement !== input) input.value = mc.configured || '';
+  $('setMcDir').textContent = mc.dir ? 'найдена' : (mc.configured ? 'не найдена' : 'авто');
+  $('setMcDir').title = mc.dir || mc.configured || '';
+
+  const found = Array.isArray(mc.found) ? mc.found : [];
+  const box = $('setMcFound');
+  box.hidden = !found.length;
+  box.innerHTML = found.length
+    ? `<span class="mc-found-title">Найдено</span>${found.map((item) => {
+      const label = item.instance ? `${item.launcher} · ${item.instance}` : item.launcher;
+      return `<button type="button" class="mc-found-item" data-mc-path="${escapeHtml(item.path)}" title="${escapeHtml(item.path)}">${escapeHtml(label)}</button>`;
+    }).join('')}`
+    : '';
 }
 
 async function saveSettings(patch = {}) {
@@ -679,7 +707,7 @@ document.addEventListener('click', async (event) => {
     try {
       const result = await api('/api/minecraft/add', { ip: address, name: `Nurofen · ${play.dataset.name || address}` });
       if (!result?.ok) {
-        toast(result?.error === 'bad_address' ? 'Некорректный адрес мира' : 'Не удалось записать servers.dat');
+        toast(result?.error || 'Не удалось записать servers.dat');
         return;
       }
       await copy(address);
@@ -746,6 +774,67 @@ $('setCompact').addEventListener('change', (event) => saveSettings({ compactPeer
 $('setAutoConnect').addEventListener('change', (event) => saveSettings({ autoConnect: event.target.checked }));
 $('setDirect').addEventListener('change', (event) => saveDirect(event.target.checked));
 $('setNickname').addEventListener('click', () => openTool('nickname'));
+
+$('setMcPath').addEventListener('input', () => { mcPathDirty = true; });
+
+$('setMcPick').addEventListener('click', async () => {
+  const button = $('setMcPick');
+  button.disabled = true;
+  try {
+    const result = await api('/api/minecraft/pick');
+    if (result?.cancelled) return;
+    if (!result?.path) {
+      toast('Не удалось открыть выбор папки');
+      return;
+    }
+    $('setMcPath').value = result.path;
+    mcPathDirty = true;
+    toast(result.ok ? 'Папка выбрана — нажмите «Сохранить путь»' : 'В этой папке Minecraft не найден');
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('setMcSave').addEventListener('click', async () => {
+  const button = $('setMcSave');
+  button.disabled = true;
+  try {
+    const value = $('setMcPath').value.trim();
+    const result = await api('/api/minecraft/path', { dir: value });
+    if (!result?.ok) {
+      toast(result?.error || 'Не удалось сохранить путь');
+      return;
+    }
+    mcPathDirty = false;
+    toast(result.dir ? `Папка Minecraft: ${result.dir}` : 'Путь сброшен — поиск автоматический');
+    await poll();
+    renderModal();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('setMcAuto').addEventListener('click', async () => {
+  $('setMcPath').value = '';
+  mcPathDirty = false;
+  const result = await api('/api/minecraft/path', { dir: '' });
+  if (!result?.ok) {
+    toast('Не удалось сбросить путь');
+    return;
+  }
+  toast('Поиск Minecraft снова автоматический');
+  await poll();
+  renderModal();
+});
+
+$('setMcFound').addEventListener('click', (event) => {
+  const item = event.target.closest('[data-mc-path]');
+  if (!item) return;
+  $('setMcPath').value = item.dataset.mcPath;
+  mcPathDirty = true;
+});
+
+$('mcPickDir').addEventListener('click', () => openTool('settings'));
 
 $('nicknameSave').addEventListener('click', async () => {
   $('nicknameSave').disabled = true;

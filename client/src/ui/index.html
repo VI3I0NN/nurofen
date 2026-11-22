@@ -141,6 +141,10 @@
         </button>
       </div>
       <p class="mc-hint" id="mcHint">Откройте мир и нажмите «Открыть для сети».</p>
+      <div class="mc-foot">
+        <span class="mc-path" id="mcPath" title=""></span>
+        <button type="button" class="mc-link" id="mcPickDir">Указать папку…</button>
+      </div>
     </section>
 
     <section class="members">
@@ -219,6 +223,25 @@
               <input type="checkbox" id="setDirect">
               <span><b>Прямые соединения</b><small>Бета. Ускоряет обмен между участниками, если включено у обоих.</small></span>
             </label>
+          </section>
+
+          <section class="settings-group">
+            <h3>Minecraft</h3>
+            <div class="settings-line">
+              <span>Папка игры</span>
+              <b id="setMcDir">авто</b>
+            </div>
+            <input class="mc-input" id="setMcPath" type="text" spellcheck="false" autocomplete="off"
+              placeholder="Автоопределение — оставьте пустым">
+            <div class="mc-actions">
+              <button type="button" class="ghost slim-ghost" id="setMcPick">Выбрать папку…</button>
+              <button type="button" class="ghost slim-ghost" id="setMcSave">Сохранить путь</button>
+              <button type="button" class="ghost slim-ghost" id="setMcAuto">Авто</button>
+            </div>
+            <div class="mc-found" id="setMcFound" hidden></div>
+            <p class="modal-note">Подойдёт папка игры или корень лаунчера. Поддерживаются .minecraft,
+              TLauncher Legacy, Legacy Launcher, Prism, PineconeMC, MultiMC, Modrinth, ATLauncher,
+              GDLauncher и CurseForge.</p>
           </section>
 
           <section class="settings-group">

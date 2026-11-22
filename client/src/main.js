@@ -20,7 +20,8 @@ import { defaultServerUrl, heartbeat, join, leave, normalizeServer, state as get
 import { helperAlive, helperInfo, ensureFirewall, ping, restartHelper, syncDirectPeers, tunnelDown, tunnelStatus, tunnelUp } from './tunnel.js';
 import { startHelper } from './helper.js';
 import { detectLanPort } from './minecraft.js';
-import { minecraftInstalled, upsertServer } from './servers.js';
+import { activeGameDir, resolveGameDir, scanGameDirs } from './minecraftPaths.js';
+import { upsertServer } from './servers.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(HERE, '..');
@@ -79,6 +80,60 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function profile() {
   return loadProfile();
+}
+
+/** The game folder the user picked by hand; empty means auto-detect. */
+function configuredMinecraftDir(p = loadProfile()) {
+  return String(p.settings?.minecraftDir || '').trim();
+}
+
+/**
+ * Everything the UI needs to explain where Minecraft was found: the path in
+ * use, the manual path and the short list of detected launchers.
+ */
+function minecraftInfo(p = loadProfile()) {
+  const configured = configuredMinecraftDir(p);
+  const dir = activeGameDir(configured);
+  return {
+    configured,
+    dir: dir || '',
+    installed: Boolean(dir),
+    found: scanGameDirs().slice(0, 6).map((item) => ({
+      path: item.path,
+      launcher: item.launcher,
+      instance: item.instance || '',
+    })),
+  };
+}
+
+/**
+ * Folder picker for the plain-Node run (no Electron shell). PowerShell writes
+ * the chosen path to a UTF-8 file so Cyrillic paths survive the console codepage.
+ */
+function pickDirectoryFallback() {
+  return new Promise((resolve) => {
+    const outFile = path.join(os.tmpdir(), `nurofen-pick-${randomUUID()}.txt`);
+    const quoted = outFile.replace(/'/g, "''");
+    const script = [
+      'Add-Type -AssemblyName System.Windows.Forms',
+      '$d = New-Object System.Windows.Forms.FolderBrowserDialog',
+      '$d.Description = "Папка Minecraft"',
+      '$d.ShowNewFolderButton = $false',
+      `if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [IO.File]::WriteAllText('${quoted}', $d.SelectedPath, [Text.Encoding]::UTF8) }`,
+    ].join('; ');
+    const child = spawn('powershell.exe', ['-NoProfile', '-STA', '-Command', script], { windowsHide: true });
+    child.on('error', () => resolve(''));
+    child.on('close', () => {
+      let picked = '';
+      try {
+        picked = fs.readFileSync(outFile, 'utf8').trim();
+        fs.unlinkSync(outFile);
+      } catch {
+        // cancelled or the file was never written
+      }
+      resolve(picked);
+    });
+  });
 }
 
 function joined(member) {
@@ -336,6 +391,8 @@ function friendlyError(code) {
     no_update: 'Обновлений нет.',
     update_cancelled: 'Обновление отменено.',
     bad_checksum: 'Скачанный файл повреждён. Попробуйте ещё раз.',
+    minecraft_not_found: 'Папка Minecraft не найдена — укажите её в настройках.',
+    bad_address: 'Некорректный адрес мира.',
   };
   if (map[code]) return map[code];
   if (/elevat|access is denied|отказано/i.test(code)) {
@@ -611,8 +668,8 @@ async function tick() {
   try {
   // Minecraft writes the LAN port to its own log; reading the tail is the
   // only reliable way to learn it without touching the game.
-  ui.minecraft = detectLanPort();
   const p = syncRuntime();
+  ui.minecraft = detectLanPort(configuredMinecraftDir(p));
   await Promise.all(p.networks.map(async (member) => {
     const state = runtimeFor(member.id);
     state.checkTick = (state.checkTick || 0) + 1;
@@ -1090,6 +1147,7 @@ function restartApp() {
 
 function snapshot() {
   const p = syncRuntime();
+  const minecraft = minecraftInfo(p);
   const networks = p.networks.map((member) => {
     const state = runtimeFor(member.id);
     return {
@@ -1115,12 +1173,12 @@ function snapshot() {
   return {
     version: APP_VERSION,
     deviceName: p.deviceName,
-    minecraft: ui.minecraft,
-    minecraftInstalled: minecraftInstalled(),
+    minecraft: { port: ui.minecraft?.port ?? null, at: ui.minecraft?.at ?? null, ...minecraft },
+    minecraftInstalled: minecraft.installed,
     activeId: p.activeId,
     networks,
     update: { ...update },
-    settings: p.settings || { compactPeers: true, autoConnect: true },
+    settings: p.settings || { compactPeers: true, autoConnect: true, minecraftDir: '' },
     helper: ui.helper,
     helperVersion: ui.helperVersion || '',
     helperStale: Boolean(ui.helper && compareVersions(ui.helperVersion, APP_VERSION) < 0),
@@ -1172,6 +1230,9 @@ const server = http.createServer(async (req, res) => {
           p.settings = {
             compactPeers: body.compactPeers !== false,
             autoConnect: body.autoConnect !== false,
+            minecraftDir: body.minecraftDir === undefined
+              ? configuredMinecraftDir(p)
+              : String(body.minecraftDir || '').trim(),
           };
           saveProfile(p);
           json(res, 200, { ok: true, settings: p.settings });
@@ -1234,9 +1295,33 @@ const server = http.createServer(async (req, res) => {
         case '/api/minecraft/add': {
           const address = String(body.ip || '').trim();
           if (!/^\d{1,3}(\.\d{1,3}){3}:\d{2,5}$/.test(address)) throw new Error('bad_address');
-          const result = upsertServer({ name: body.name, ip: address });
+          const result = upsertServer({ name: body.name, ip: address, dir: configuredMinecraftDir() });
           pushLog('ok', `мир добавлен в список серверов: ${result.name}`);
           json(res, 200, result);
+          return;
+        }
+        case '/api/minecraft/path': {
+          const value = String(body.dir || '').trim();
+          if (value && !resolveGameDir(value)) throw new Error('minecraft_not_found');
+          const p = loadProfile();
+          p.settings = { ...(p.settings || {}), minecraftDir: value };
+          saveProfile(p);
+          scanGameDirs({ refresh: true });
+          const info = minecraftInfo(p);
+          pushLog('info', info.dir ? `папка Minecraft: ${info.dir}` : 'папка Minecraft: автоопределение');
+          json(res, 200, { ok: true, ...info });
+          return;
+        }
+        case '/api/minecraft/pick': {
+          const picked = ELECTRON?.pickDirectory
+            ? await ELECTRON.pickDirectory()
+            : await pickDirectoryFallback();
+          if (!picked) {
+            json(res, 200, { ok: false, cancelled: true });
+            return;
+          }
+          const resolved = resolveGameDir(picked);
+          json(res, 200, { ok: Boolean(resolved), path: picked, dir: resolved || '' });
           return;
         }
         case '/api/update/check': {

@@ -6,22 +6,22 @@
  *
  * The format is gzipped NBT; anything we do not understand is preserved so a
  * file written by the game (or by another launcher) survives untouched.
+ *
+ * The game folder is not always `%APPDATA%\.minecraft`: Prism, PineconeMC,
+ * TLauncher Legacy and the rest each keep their own tree, so every entry point
+ * takes the configured path (empty means auto-detect).
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { TAG, byte, compound, gunzipNbt, gzipNbt, list, string } from './nbt.js';
+import { activeGameDir } from './minecraftPaths.js';
 
 const MAX_SERVERS = 64;
 
-/** `%APPDATA%\.minecraft`, honouring a custom install when one is obvious. */
-export function minecraftDir() {
-  const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-  return path.join(appData, '.minecraft');
-}
-
-export function serversDatPath() {
-  return path.join(minecraftDir(), 'servers.dat');
+/** `servers.dat` of the configured or auto-detected game folder, or null. */
+export function serversDatPath(configuredDir = '') {
+  const dir = activeGameDir(configuredDir);
+  return dir ? path.join(dir, 'servers.dat') : null;
 }
 
 /**
@@ -29,8 +29,9 @@ export function serversDatPath() {
  * game creates it on first save, and creating it ourselves is exactly what
  * makes "add to list" work on a fresh install.
  */
-export function readServers() {
-  const file = serversDatPath();
+export function readServers(configuredDir = '') {
+  const file = serversDatPath(configuredDir);
+  if (!file) return { servers: [], file: null, fresh: true };
   let root;
   try {
     root = gunzipNbt(fs.readFileSync(file));
@@ -65,13 +66,14 @@ function entry({ name, ip, icon, acceptTextures, hidden }) {
  * Adds a server to the list, or updates the entry with the same address.
  * Returns the address that was written so the UI can show it verbatim.
  */
-export function upsertServer({ name, ip, aliases = [] }) {
+export function upsertServer({ name, ip, aliases = [], dir = '' }) {
   const wanted = String(ip || '').trim();
   if (!wanted) throw new Error('server_required');
-  const dir = minecraftDir();
-  fs.mkdirSync(dir, { recursive: true });
+  const file = serversDatPath(dir);
+  if (!file) throw new Error('minecraft_not_found');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
 
-  const { servers, root } = readServers();
+  const { servers, root } = readServers(dir);
   const label = String(name || wanted).slice(0, 60);
   const sameTarget = (value) => value === wanted || aliases.includes(value);
   const keep = servers.filter((server) => server.ip && !sameTarget(server.ip));
@@ -80,7 +82,6 @@ export function upsertServer({ name, ip, aliases = [] }) {
   const next = root?.value ? root : compound({});
   next.value.servers = list(TAG.COMPOUND, merged.map(entry));
 
-  const file = serversDatPath();
   const temp = `${file}.nurofen.tmp`;
   fs.writeFileSync(temp, gzipNbt(next));
   try {
@@ -94,11 +95,7 @@ export function upsertServer({ name, ip, aliases = [] }) {
   return { ok: true, ip: wanted, name: label, file, count: merged.length };
 }
 
-/** True when the game's folder exists, i.e. adding a server is meaningful. */
-export function minecraftInstalled() {
-  try {
-    return fs.existsSync(minecraftDir());
-  } catch {
-    return false;
-  }
+/** True when a usable game folder is configured or detected. */
+export function minecraftInstalled(configuredDir = '') {
+  return Boolean(activeGameDir(configuredDir));
 }
