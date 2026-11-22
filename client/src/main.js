@@ -1322,7 +1322,7 @@ function browserPath() {
   return null;
 }
 
-const WINDOW_WIDTH = 440;
+const WINDOW_WIDTH = 400;
 const WINDOW_HEIGHT = 740;
 
 function windowProfileDir() {

@@ -54,10 +54,11 @@ function createWindow() {
   }
 
   win = new BrowserWindow({
-    width: 440,
+    width: 400,
     height: 740,
-    minWidth: 360,
-    minHeight: 560,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
     show: false,
     title: 'Nurofen',
     icon: ICON || undefined,
