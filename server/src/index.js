@@ -365,6 +365,8 @@ const DL_FILES = {
   'amneziawg.msi': 'application/x-msi',
   'NurofenSetup.exe': 'application/vnd.microsoft.portable-executable',
   'client.zip': 'application/zip',
+  'nurofen.ico': 'image/x-icon',
+  'nurofen.png': 'image/png',
 };
 
 function handleDownload(req, res, params) {  const type = DL_FILES[params.name];
@@ -378,12 +380,13 @@ function handleDownload(req, res, params) {  const type = DL_FILES[params.name];
     json(res, 404, { error: 'not_mirrored' });
     return;
   }
+  const inline = type.startsWith('image/');
   res.writeHead(200, {
     'content-type': type,
     'content-length': stat.size,
-    'content-disposition': `attachment; filename="${params.name}"`,
+    'content-disposition': `${inline ? 'inline' : 'attachment'}; filename="${params.name}"`,
     'x-content-type-options': 'nosniff',
-    'cache-control': 'no-store',
+    'cache-control': inline ? 'public, max-age=86400' : 'no-store',
   });
   fs.createReadStream(file).pipe(res);
 }

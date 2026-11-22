@@ -7,16 +7,18 @@ export const downloadPage = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
+<meta name="theme-color" content="#0b0d10">
+<link rel="icon" href="/dl/nurofen.ico" type="image/x-icon">
 <title>Nurofen — скачать для Windows</title>
 <style>
   :root {
-    --bg: #0b0e13;
-    --surface: #131820;
-    --line: #232c38;
-    --text: #e8eef6;
-    --muted: #8a97a8;
-    --green: #3ddc84;
-    --green-dim: #1c3b2a;
+    --bg: #0b0d10;
+    --surface: #11141a;
+    --line: #252b35;
+    --text: #f0f2f5;
+    --muted: #8993a3;
+    --green: #27d98a;
+    --green-dim: #16281f;
   }
   * { box-sizing: border-box; }
   html, body { min-height: 100%; }
@@ -26,17 +28,32 @@ export const downloadPage = `<!doctype html>
     place-items: center;
     padding: 32px 18px;
     background:
-      radial-gradient(900px 500px at 50% -10%, #16212b 0%, transparent 70%),
+      radial-gradient(900px 500px at 50% -10%, #151b24 0%, transparent 70%),
       var(--bg);
     color: var(--text);
     font: 15px/1.6 -apple-system, "Segoe UI", Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
   main { width: 100%; max-width: 520px; }
-  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 26px; }
-  .mark { width: 30px; height: 30px; color: var(--green); flex: 0 0 auto; }
-  .brand-name { font-weight: 650; letter-spacing: .2px; font-size: 17px; }
-  .brand-sub { color: var(--muted); font-size: 12px; }
+  .brand { margin-bottom: 28px; }
+  .brand-word {
+    display: inline-block;
+    font-size: 27px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -.045em;
+    color: var(--text);
+  }
+  .brand-ring {
+    display: inline-block;
+    width: .56em;
+    height: .56em;
+    margin: 0 .02em;
+    border: .13em solid var(--green);
+    border-radius: 50%;
+    transform: translateY(.03em);
+  }
+  .brand-sub { margin-top: 7px; color: var(--muted); font-size: 12px; }
   h1 { margin: 0 0 10px; font-size: 27px; line-height: 1.25; letter-spacing: -.3px; }
   .lead { margin: 0 0 26px; color: var(--muted); font-size: 14.5px; }
   .panel {
@@ -48,12 +65,12 @@ export const downloadPage = `<!doctype html>
   .download {
     display: flex; align-items: center; justify-content: center; gap: 10px;
     min-height: 52px; padding: 14px 18px;
-    border-radius: 10px; border: 1px solid #2d5f42;
-    background: var(--green-dim); color: #bef7d5;
+    border-radius: 10px; border: 1px solid #2c5a44;
+    background: var(--green-dim); color: #b9f2d3;
     font-size: 15px; font-weight: 600; text-decoration: none;
     transition: background .15s ease;
   }
-  .download:hover { background: #235038; }
+  .download:hover { background: #1d3528; }
   .download svg { width: 19px; height: 19px; flex: 0 0 auto; }
   .meta {
     margin: 12px 0 0; text-align: center;
@@ -95,17 +112,8 @@ export const downloadPage = `<!doctype html>
 <body>
 <main>
   <div class="brand">
-    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M5 17.5 12 5l7 12.5" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="5" cy="17.5" r="2.4" fill="currentColor"/>
-      <circle cx="19" cy="17.5" r="2.4" fill="currentColor"/>
-      <circle cx="12" cy="5" r="2.4" fill="currentColor"/>
-    </svg>
-    <div>
-      <div class="brand-name">Nurofen</div>
-      <div class="brand-sub">виртуальная локальная сеть</div>
-    </div>
+    <span class="brand-word" aria-label="nurofen">nur<span class="brand-ring"></span>fen</span>
+    <div class="brand-sub">виртуальная локальная сеть</div>
   </div>
 
   <h1>Скачайте Nurofen<br>и подключитесь к друзьям</h1>
