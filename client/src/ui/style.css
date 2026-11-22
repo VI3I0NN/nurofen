@@ -580,9 +580,9 @@ b { font-weight: 600; }
 /* minecraft world */
 .mc {
   flex: 0 0 auto;
-  padding: 10px 14px;
+  padding: 8px 12px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--surface);
 }
 
@@ -620,26 +620,7 @@ b { font-weight: 600; }
 .mc-copy svg { width: 14px; height: 14px; }
 .mc-copy:hover { border-color: var(--line); background: var(--surface-2); color: var(--text); }
 
-.mc-hint { margin: 3px 0 0; color: var(--muted); font-size: 11.5px; }
-
-.mc-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.mc-path {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 10.5px;
-}
+.mc-hint { margin: 2px 0 0; color: var(--muted); font-size: 11.5px; }
 
 .members {
   flex: 0 0 auto;
@@ -665,7 +646,7 @@ b { font-weight: 600; }
 .peer {
   display: flex;
   align-items: center;
-  gap: 13px;
+  gap: 10px;
   min-height: 68px;
   padding: 11px 20px;
   border-top: 1px solid var(--line);
@@ -693,7 +674,7 @@ b { font-weight: 600; }
 .avatar.tone-4 { background: #362730; color: #dfb9c8; }
 .avatar.tone-5 { background: #2e2c42; color: #c3bfe5; }
 
-.peer-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.peer-main { flex: 1 0 137px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 
 .peer .name {
   display: flex;
@@ -724,7 +705,7 @@ b { font-weight: 600; }
 
 .mc-play {
   flex: 0 0 auto;
-  padding: 1px 7px;
+  padding: 1px 5px;
   border: 1px solid var(--accent-line);
   border-radius: 6px;
   background: var(--accent-dim);
@@ -739,7 +720,7 @@ b { font-weight: 600; }
 
 .peer .ip {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -747,8 +728,8 @@ b { font-weight: 600; }
 .peer-sub { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .peer-sub .ip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.peer .ping { font-family: var(--mono); font-size: 11px; color: var(--faint); white-space: nowrap; }
-.peer-connection { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
+.peer .ping { font-family: var(--mono); font-size: 11px; color: var(--faint); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.peer-connection { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: 0 1 auto; min-width: 0; }
 
 .presence {
   display: inline-flex;

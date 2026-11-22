@@ -237,12 +237,6 @@ function renderMinecraft() {
   const sharedPort = serverReady ? server.port : (lanOpen ? mc.port : null);
   const open = Boolean(sharedPort) && connected;
 
-  const pathLabel = $('mcPath');
-  const shown = serverReady ? server.dir : (mc.dir || mc.configured || server.configured || '');
-  pathLabel.textContent = shown;
-  pathLabel.title = shown;
-  pathLabel.hidden = !shown;
-
   if (open) {
     $('mcState').textContent = serverReady ? 'сервер запущен' : 'мир открыт';
     $('mcState').classList.add('on');
@@ -314,17 +308,18 @@ function renderPeers() {
       const pingClass = ping == null ? '' : ping <= 80 ? 'good' : ping > 160 ? 'bad' : 'warn';
       const pingText = peer.self ? '—' : !tunnelUp || !online ? '—' : ping == null ? 'нет ответа' : `${ping} мс`;
       const mode = net.directModes?.[peer.ip];
-      const routeText = net.direct && online && !peer.self
-        ? (mode === 'direct' ? ' · напрямую'
-          : mode === 'trying' ? ' · проверяю'
-            : mode === 'stale' ? ' · нужен перезапуск'
-              : ' · через сервер')
+      const routeLabel = net.direct && online && !peer.self
+        ? (mode === 'direct' ? 'напрямую'
+          : mode === 'trying' ? 'проверяю'
+            : mode === 'stale' ? 'нужен перезапуск'
+              : 'через сервер')
         : '';
+      const pingTitle = `Время ответа участника${routeLabel ? `, соединение ${routeLabel}` : ''}; нет ответа может означать блокировку ICMP`;
       const world = tunnelUp && online && !peer.self && state.minecraftInstalled && peer.lanPort
         ? `${peer.ip}:${peer.lanPort}`
         : null;
       const playButton = world
-        ? `<button type="button" class="mc-play" data-play="${escapeHtml(world)}" data-name="${escapeHtml(peer.name)}" title="Добавить мир ${escapeHtml(world)} в «Сетевую игру»">Зайти</button>`
+        ? `<button type="button" class="mc-play" data-play="${escapeHtml(world)}" data-name="${escapeHtml(peer.name)}" title="Добавить сервер ${escapeHtml(world)} в «Сетевую игру»">Добавить</button>`
         : '';
       return `
         <div class="peer ${online ? 'online' : ''}">
@@ -333,7 +328,7 @@ function renderPeers() {
             <span class="name"><span class="name-text">${escapeHtml(peer.name)}</span>${peer.self ? '<span class="tag-self">вы</span>' : ''}</span>
             <span class="peer-sub"><span class="ip">${escapeHtml(peer.ip)}</span>${playButton}</span>
           </div>
-          <span class="peer-connection"><span class="presence ${online ? 'online' : ''}">${online ? 'В сети' : 'Не в сети'}</span><span class="ping ${pingClass}" title="Время ответа участника; нет ответа может означать блокировку ICMP">${pingText}${routeText}</span></span>
+          <span class="peer-connection"><span class="presence ${online ? 'online' : ''}">${online ? 'В сети' : 'Не в сети'}</span><span class="ping ${pingClass}" title="${escapeHtml(pingTitle)}">${pingText}</span></span>
           <button type="button" class="copy" data-copy="${escapeHtml(peer.ip)}" title="Скопировать адрес"
                   aria-label="Скопировать адрес ${escapeHtml(peer.ip)}">${COPY_ICON}</button>
         </div>`;
@@ -745,9 +740,7 @@ document.addEventListener('click', async (event) => {
         return;
       }
       await copy(address);
-      toast(result.running
-        ? `Сервер добавлен — перезапустите Minecraft, чтобы он появился в «Сетевой игре».`
-        : `Мир добавлен в «Сетевая игра» — ${address}`);
+      toast(`Сервер добавлен в «Сетевая игра» — ${address}`);
     } finally {
       play.disabled = false;
     }

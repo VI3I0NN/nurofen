@@ -13,7 +13,7 @@
 param(
   [string]$Server = 'http://201.58.187.214:8787',
   [string]$Output = '',
-  [string]$Notes = 'Исправлена запись servers.dat: Minecraft снова видит добавленный сервер.'
+  [string]$Notes = 'Окно шире и с изменяемым размером, компактный блок Minecraft, маршрут соединения — в подсказке пинга.'
 )
 
 $ErrorActionPreference = 'Stop'
