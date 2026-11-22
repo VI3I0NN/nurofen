@@ -36,6 +36,7 @@ let joining = false;
 let polling = false;
 let modalKind = null;
 let toastTimer = null;
+let peersMarkup = null;
 // The settings window polls every couple of seconds; never overwrite a path
 // the user is typing or has just picked but not saved yet.
 let mcPathDirty = false;
@@ -294,7 +295,7 @@ function renderPeers() {
   $('peersCount').textContent = peers.length ? `${onlineCount} из ${peers.length}` : '';
 
   if (!peers.length) {
-    $('peers').innerHTML = '<div class="empty">Пока никого нет.<br>Сообщите друзьям название сети и пароль.</div>';
+    paintPeers('<div class="empty">Пока никого нет.<br>Сообщите друзьям название сети и пароль.</div>');
     return;
   }
 
@@ -306,7 +307,7 @@ function renderPeers() {
 
   const tunnelUp = net.status === 'connected';
 
-  $('peers').innerHTML = sorted
+  paintPeers(sorted
     .map((peer) => {
       const online = peer.self ? tunnelUp : peer.online;
       const ping = net.pings?.[peer.ip];
@@ -337,7 +338,18 @@ function renderPeers() {
                   aria-label="Скопировать адрес ${escapeHtml(peer.ip)}">${COPY_ICON}</button>
         </div>`;
     })
-    .join('');
+    .join(''));
+}
+
+/**
+ * Rebuilding the list every poll would swallow clicks: the button under the
+ * pointer disappears between mousedown and mouseup. Only touch the DOM when
+ * the markup really changed.
+ */
+function paintPeers(markup) {
+  if (markup === peersMarkup) return;
+  peersMarkup = markup;
+  $('peers').innerHTML = markup;
 }
 
 function renderStatusbar() {
@@ -733,7 +745,9 @@ document.addEventListener('click', async (event) => {
         return;
       }
       await copy(address);
-      toast(`Мир добавлен в «Сетевая игра» — ${address}`);
+      toast(result.running
+        ? `Сервер добавлен — перезапустите Minecraft, чтобы он появился в «Сетевой игре».`
+        : `Мир добавлен в «Сетевая игра» — ${address}`);
     } finally {
       play.disabled = false;
     }

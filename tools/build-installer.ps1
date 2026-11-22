@@ -13,7 +13,7 @@
 param(
   [string]$Server = 'http://201.58.187.214:8787',
   [string]$Output = '',
-  [string]$Notes = 'Сервер Minecraft (server.jar) и путь к папке игры в настройках.'
+  [string]$Notes = 'Кнопка «Зайти»: запись в список серверов запущенного Minecraft и понятная подсказка.'
 )
 
 $ErrorActionPreference = 'Stop'

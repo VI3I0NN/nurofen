@@ -238,6 +238,23 @@ export function minecraftInstalled(configured = '') {
   return Boolean(activeGameDir(configured));
 }
 
+/**
+ * The instance the player is in right now, judged by a `latest.log` that is
+ * still being written. The configured folder can be an old instance while the
+ * game runs in another one, and `servers.dat` must land in the running one or
+ * the player will never see the entry.
+ */
+export function runningGameDir(maxAgeMs = 10 * 60 * 1000) {
+  const now = Date.now();
+  let best = null;
+  for (const item of scanGameDirs()) {
+    const mtime = logStamp(item.path);
+    if (!mtime || now - mtime > maxAgeMs) continue;
+    if (!best || mtime > best.mtime) best = { dir: item.path, mtime };
+  }
+  return best;
+}
+
 export function serversDatPath(configured = '') {
   const dir = activeGameDir(configured);
   return dir ? path.join(dir, 'servers.dat') : null;

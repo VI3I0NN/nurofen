@@ -20,8 +20,8 @@ import { defaultServerUrl, heartbeat, join, leave, normalizeServer, state as get
 import { helperAlive, helperInfo, ensureFirewall, ping, restartHelper, syncDirectPeers, tunnelDown, tunnelStatus, tunnelUp } from './tunnel.js';
 import { startHelper } from './helper.js';
 import { detectLanPort, serverInfo } from './minecraft.js';
-import { activeGameDir, findServerDir, resolveGameDir, scanGameDirs } from './minecraftPaths.js';
-import { upsertServer } from './servers.js';
+import { activeGameDir, findServerDir, resolveGameDir, runningGameDir, scanGameDirs } from './minecraftPaths.js';
+import { readServers, upsertServer } from './servers.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(HERE, '..');
@@ -68,6 +68,7 @@ const ui = {
   awg: false,
   minecraft: null,
   server: null,
+  pendingServer: null,
   logTail: [],
 };
 
@@ -678,6 +679,34 @@ async function setDirect(id, value) {
 }
 
 let ticking = false;
+/**
+ * The game loads `servers.dat` at startup and may write its in-memory list
+ * back when it closes, so a click made while it is open would be lost. Keep
+ * the entry around for a few minutes and put it back whenever the file no
+ * longer has it; that way the next launch always shows the server.
+ */
+const PENDING_SERVER_MS = 10 * 60 * 1000;
+
+function flushPendingServer() {
+  const pending = ui.pendingServer;
+  if (!pending) return;
+  if (Date.now() > pending.until) {
+    ui.pendingServer = null;
+    return;
+  }
+  const dirs = new Set([configuredMinecraftDir()]);
+  const running = runningGameDir();
+  if (running) dirs.add(running.dir);
+  for (const dir of dirs) {
+    try {
+      if (readServers(dir).servers.some((server) => server.ip === pending.ip)) continue;
+      upsertServer({ name: pending.name, ip: pending.ip, dir });
+    } catch {
+      // a file the game is writing right now is retried on the next tick
+    }
+  }
+}
+
 async function tick() {
   if (ticking) return;
   ticking = true;
@@ -687,6 +716,7 @@ async function tick() {
   const p = syncRuntime();
   ui.minecraft = detectLanPort(configuredMinecraftDir(p));
   ui.server = await serverInfo(configuredServerDir(p));
+  flushPendingServer();
   await Promise.all(p.networks.map(async (member) => {
     const state = runtimeFor(member.id);
     state.checkTick = (state.checkTick || 0) + 1;
@@ -1317,8 +1347,28 @@ const server = http.createServer(async (req, res) => {
           const address = String(body.ip || '').trim();
           if (!/^\d{1,3}(\.\d{1,3}){3}:\d{2,5}$/.test(address)) throw new Error('bad_address');
           const result = upsertServer({ name: body.name, ip: address, dir: configuredMinecraftDir() });
-          pushLog('ok', `мир добавлен в список серверов: ${result.name}`);
-          json(res, 200, result);
+          // The game reads `servers.dat` at startup and writes its in-memory
+          // list back on exit. If the player is in a different instance than
+          // the configured one, the entry has to land there as well or it is
+          // never shown to them.
+          const primaryDir = path.dirname(result.file);
+          const running = runningGameDir();
+          const files = [result.file];
+          if (running && running.dir.toLowerCase() !== primaryDir.toLowerCase()) {
+            try {
+              const extra = upsertServer({ name: body.name, ip: address, dir: running.dir });
+              if (!files.includes(extra.file)) files.push(extra.file);
+            } catch {
+              // the configured folder is what matters; a second copy is a bonus
+            }
+          }
+          pushLog('ok', `мир добавлен в список серверов: ${result.name} → ${files.join('; ')}`);
+          ui.pendingServer = {
+            name: result.name,
+            ip: address,
+            until: Date.now() + PENDING_SERVER_MS,
+          };
+          json(res, 200, { ...result, files, running: Boolean(running) });
           return;
         }
         case '/api/minecraft/path': {

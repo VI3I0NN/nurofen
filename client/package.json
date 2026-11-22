@@ -1,6 +1,6 @@
 {
   "name": "nurofen-client",
-  "version": "0.4.25",
+  "version": "0.4.26",
   "private": true,
   "type": "module",
   "description": "Nurofen Windows client - virtual LAN over AmneziaWG",
