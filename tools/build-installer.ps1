@@ -13,7 +13,7 @@
 param(
   [string]$Server = 'http://201.58.187.214:8787',
   [string]$Output = '',
-  [string]$Notes = 'Google Sans в интерфейсе и Consolas для адресов, пинга и версий.'
+  [string]$Notes = 'Minecraft: кнопка «Зайти» у открытого мира и адрес своего мира. В строке состояния видно доступное обновление.'
 )
 
 $ErrorActionPreference = 'Stop'

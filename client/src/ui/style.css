@@ -446,6 +446,7 @@ b { font-weight: 600; }
   flex: 1;
   min-width: 0;
   font-size: 15px;
+  font-weight: 600;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -471,6 +472,7 @@ b { font-weight: 600; }
 .hero-ip {
   font-family: var(--mono);
   font-size: 15px;
+  font-weight: 600;
   color: #aeb8c5;
   font-variant-numeric: tabular-nums;
 }
@@ -486,6 +488,7 @@ b { font-weight: 600; }
   background: var(--bg-soft);
   color: var(--muted);
   font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -574,6 +577,51 @@ b { font-weight: 600; }
 .direct-hint { font-size: 12px; color: var(--muted); text-align: right; }
 .direct-hint.on { color: var(--accent); }
 
+/* minecraft world */
+.mc {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.mc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mc-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.mc-state { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.mc-state.on { color: var(--accent); }
+
+.mc-world { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+
+.mc-addr {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.mc-copy {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+}
+
+.mc-copy svg { width: 14px; height: 14px; }
+.mc-copy:hover { border-color: var(--line); background: var(--surface-2); color: var(--text); }
+
+.mc-hint { margin: 3px 0 0; color: var(--muted); font-size: 11.5px; }
+
 .members {
   flex: 0 0 auto;
   border: 1px solid var(--line);
@@ -655,6 +703,21 @@ b { font-weight: 600; }
   font-weight: 500;
 }
 
+.mc-play {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border: 1px solid var(--accent-line);
+  border-radius: 6px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.mc-play:hover:not(:disabled) { border-color: var(--accent-strong); background: #173527; }
+.mc-play:disabled { opacity: .6; cursor: progress; }
+
 .peer .ip {
   font-family: var(--mono);
   font-size: 13px;
@@ -734,8 +797,30 @@ b { font-weight: 600; }
 .status-ico { flex: 0 0 auto; width: 16px; height: 16px; fill: none; stroke: var(--faint); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .statusbar #statusLeft { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .statusbar #statusCenter { flex: 0 1 auto; color: var(--faint); }
-.statusbar #statusRight { flex: 0 0 auto; font-family: var(--mono); color: var(--faint); }
-.statusbar #statusRight.update { color: var(--accent); }
+.statusbar #statusRight {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px 6px;
+  font-family: var(--mono);
+  color: var(--faint);
+}
+
+.status-version { white-space: nowrap; }
+
+.update-note {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.update-note:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 .force-update {
   width: 100%;

@@ -109,6 +109,7 @@ function render() {
     renderTabs();
     renderHero();
     renderDirect();
+    renderMinecraft();
     renderPeers();
     renderStatusbar();
   }
@@ -217,6 +218,38 @@ function renderDirect() {
   else hint.textContent = 'Нет подходящих участников';
 }
 
+function renderMinecraft() {
+  const panel = $('mcPanel');
+  const installed = state?.minecraftInstalled === true;
+  panel.hidden = false;
+  if (!installed) {
+    $('mcState').textContent = 'не найден';
+    $('mcState').classList.remove('on');
+    $('mcWorld').hidden = true;
+    $('mcHint').hidden = false;
+    $('mcHint').textContent = 'Minecraft не найден на этом компьютере.';
+    return;
+  }
+
+  const net = activeNetwork();
+  const mc = state.minecraft;
+  const open = Boolean(mc?.port) && net?.status === 'connected' && Boolean(net?.self?.ip);
+  $('mcState').textContent = open ? 'мир открыт' : 'не открыт';
+  $('mcState').classList.toggle('on', open);
+  $('mcWorld').hidden = !open;
+  $('mcHint').hidden = open;
+
+  if (open) {
+    const address = `${net.self.ip}:${mc.port}`;
+    $('mcAddr').textContent = address;
+    $('mcAddr').title = address;
+  } else {
+    $('mcHint').textContent = net?.status === 'connected'
+      ? 'Откройте мир и нажмите «Открыть для сети».'
+      : 'Включите сеть, чтобы поделиться миром.';
+  }
+}
+
 function peerTone(name) {
   let hash = 0;
   for (const char of String(name || '')) hash = (hash + char.charCodeAt(0)) % 5;
@@ -261,11 +294,17 @@ function renderPeers() {
             : mode === 'stale' ? ' · нужен перезапуск'
               : ' · через сервер')
         : '';
+      const world = tunnelUp && online && !peer.self && state.minecraftInstalled && peer.lanPort
+        ? `${peer.ip}:${peer.lanPort}`
+        : null;
+      const playButton = world
+        ? `<button type="button" class="mc-play" data-play="${escapeHtml(world)}" data-name="${escapeHtml(peer.name)}" title="Добавить мир ${escapeHtml(world)} в «Сетевую игру»">Зайти</button>`
+        : '';
       return `
         <div class="peer ${online ? 'online' : ''}">
           <span class="avatar ${peerTone(peer.name)}">${escapeHtml(initials(peer.name))}</span>
           <div class="peer-main">
-            <span class="name"><span class="name-text">${escapeHtml(peer.name)}</span>${peer.self ? '<span class="tag-self">вы</span>' : ''}</span>
+            <span class="name"><span class="name-text">${escapeHtml(peer.name)}</span>${peer.self ? '<span class="tag-self">вы</span>' : ''}${playButton}</span>
             <span class="ip">${escapeHtml(peer.ip)}</span>
           </div>
           <span class="peer-connection"><span class="presence ${online ? 'online' : ''}">${online ? 'В сети' : 'Не в сети'}</span><span class="ping ${pingClass}" title="Время ответа участника; нет ответа может означать блокировку ICMP">${pingText}${routeText}</span></span>
@@ -298,9 +337,14 @@ function renderStatusbar() {
 
   const right = $('statusRight');
   const helper = state.helperStale && state.helperVersion ? ` · служба ${state.helperVersion}` : '';
-  right.textContent = state.version ? `v${state.version}${helper}` : '';
-  right.title = state.helperVersion ? `Служба-помощник: ${state.helperVersion}` : '';
-  right.classList.toggle('update', Boolean(state.update?.available));
+  const version = state.version ? `v${state.version}${helper}` : '';
+  const available = Boolean(state.update?.available);
+  right.innerHTML = available
+    ? `<span class="status-version">${escapeHtml(version)}</span><button type="button" class="update-note" data-update title="Открыть обновления">доступно обновление</button>`
+    : `<span class="status-version">${escapeHtml(version)}</span>`;
+  right.title = available
+    ? 'Доступно обновление — нажмите, чтобы открыть'
+    : state.helperVersion ? `Служба-помощник: ${state.helperVersion}` : '';
 }
 
 function renderMenu() {
@@ -624,6 +668,27 @@ document.querySelectorAll('[data-action]').forEach((button) => {
 });
 
 document.addEventListener('click', async (event) => {
+  if (event.target.closest('[data-update]')) {
+    openTool('update');
+    return;
+  }
+  const play = event.target.closest('[data-play]');
+  if (play) {
+    const address = play.dataset.play;
+    play.disabled = true;
+    try {
+      const result = await api('/api/minecraft/add', { ip: address, name: `Nurofen · ${play.dataset.name || address}` });
+      if (!result?.ok) {
+        toast(result?.error === 'bad_address' ? 'Некорректный адрес мира' : 'Не удалось записать servers.dat');
+        return;
+      }
+      await copy(address);
+      toast(`Мир добавлен в «Сетевая игра» — ${address}`);
+    } finally {
+      play.disabled = false;
+    }
+    return;
+  }
   const tab = event.target.closest('[data-net]');
   if (tab) {
     activeId = tab.dataset.net;
@@ -635,6 +700,11 @@ document.addEventListener('click', async (event) => {
   if (target) {
     if (await copy(target.dataset.copy)) toast(`Скопировано: ${target.dataset.copy}`);
   }
+});
+
+$('copyMc').addEventListener('click', async () => {
+  const address = $('mcAddr').textContent;
+  if (address && address !== '—' && (await copy(address))) toast(`Скопировано: ${address}`);
 });
 
 $('modalClose').addEventListener('click', closeModal);

@@ -19,6 +19,8 @@ import {
 import { defaultServerUrl, heartbeat, join, leave, normalizeServer, state as getState, rename, offline } from './api.js';
 import { helperAlive, helperInfo, ensureFirewall, ping, restartHelper, syncDirectPeers, tunnelDown, tunnelStatus, tunnelUp } from './tunnel.js';
 import { startHelper } from './helper.js';
+import { detectLanPort } from './minecraft.js';
+import { minecraftInstalled, upsertServer } from './servers.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(HERE, '..');
@@ -63,6 +65,7 @@ const ui = {
   helper: false,
   helperVersion: '',
   awg: false,
+  minecraft: null,
   logTail: [],
 };
 
@@ -399,6 +402,7 @@ async function refreshPeers(member) {
         directIps: localDirectIps(),
         clientVersion: APP_VERSION,
         helperVersion: ui.helperVersion || null,
+        lanPort: ui.minecraft?.port ?? null,
       })
       : await getState(member);
     if (data?.peers) state.peers = data.peers;
@@ -589,6 +593,7 @@ async function setDirect(id, value) {
         directIps: localDirectIps(),
         clientVersion: APP_VERSION,
         helperVersion: ui.helperVersion || null,
+        lanPort: ui.minecraft?.port ?? null,
       });
       if (data?.peers) state.peers = data.peers;
     } catch {
@@ -604,6 +609,9 @@ async function tick() {
   if (ticking) return;
   ticking = true;
   try {
+  // Minecraft writes the LAN port to its own log; reading the tail is the
+  // only reliable way to learn it without touching the game.
+  ui.minecraft = detectLanPort();
   const p = syncRuntime();
   await Promise.all(p.networks.map(async (member) => {
     const state = runtimeFor(member.id);
@@ -1107,6 +1115,8 @@ function snapshot() {
   return {
     version: APP_VERSION,
     deviceName: p.deviceName,
+    minecraft: ui.minecraft,
+    minecraftInstalled: minecraftInstalled(),
     activeId: p.activeId,
     networks,
     update: { ...update },
@@ -1221,6 +1231,14 @@ const server = http.createServer(async (req, res) => {
           showWindow().catch(() => {});
           json(res, 200, { ok: true });
           return;
+        case '/api/minecraft/add': {
+          const address = String(body.ip || '').trim();
+          if (!/^\d{1,3}(\.\d{1,3}){3}:\d{2,5}$/.test(address)) throw new Error('bad_address');
+          const result = upsertServer({ name: body.name, ip: address });
+          pushLog('ok', `мир добавлен в список серверов: ${result.name}`);
+          json(res, 200, result);
+          return;
+        }
         case '/api/update/check': {
           const result = await checkForUpdate();
           json(res, 200, { ok: true, update: { ...result } });
