@@ -1110,7 +1110,7 @@ function snapshot() {
     activeId: p.activeId,
     networks,
     update: { ...update },
-    settings: p.settings || { compactPeers: false, autoConnect: true },
+    settings: p.settings || { compactPeers: true, autoConnect: true },
     helper: ui.helper,
     helperVersion: ui.helperVersion || '',
     helperStale: Boolean(ui.helper && compareVersions(ui.helperVersion, APP_VERSION) < 0),
@@ -1160,7 +1160,7 @@ const server = http.createServer(async (req, res) => {
         case '/api/settings': {
           const p = loadProfile();
           p.settings = {
-            compactPeers: body.compactPeers === true,
+            compactPeers: body.compactPeers !== false,
             autoConnect: body.autoConnect !== false,
           };
           saveProfile(p);

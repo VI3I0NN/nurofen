@@ -4,11 +4,11 @@ import { randomUUID, generateKeyPairSync } from 'node:crypto';
 import { ensureDir, confDir, dataDir, profileFile } from './paths.js';
 
 const DEFAULT = {
-  version: 2,
+  version: 3,
   deviceName: '',
   activeId: null,
   settings: {
-    compactPeers: false,
+    compactPeers: true,
     autoConnect: true,
   },
   networks: [],
@@ -38,7 +38,7 @@ function migrate(raw) {
   }
   if (raw.token && raw.serverUrl && raw.network && raw.self) {
     return {
-      version: 2,
+      version: DEFAULT.version,
       deviceName: raw.deviceName || '',
       activeId: raw.network.id || null,
       settings: { ...DEFAULT.settings },
@@ -84,12 +84,16 @@ export function nextInterface(profile) {
 
 function normalize(profile) {
   const used = new Set();
+  const version = Number(profile.version) || 0;
   profile.settings = {
     ...DEFAULT.settings,
     ...(profile.settings && typeof profile.settings === 'object' ? profile.settings : {}),
   };
-  profile.settings.compactPeers = profile.settings.compactPeers === true;
+  // v3: compact list is the default. Older profiles get it once; a deliberate
+  // opt-out after the migration is preserved.
+  profile.settings.compactPeers = version < 3 ? true : profile.settings.compactPeers !== false;
   profile.settings.autoConnect = profile.settings.autoConnect !== false;
+  profile.version = DEFAULT.version;
   for (const item of profile.networks) {
     if (!item.id) item.id = randomUUID();
     if (!item.deviceId) item.deviceId = randomUUID();
@@ -124,7 +128,7 @@ export function loadProfile() {
   } catch {
     raw = null;
   }
-  const legacy = raw && (Object.prototype.hasOwnProperty.call(raw, 'invite') || !raw.version || raw.version < 2 || Object.prototype.hasOwnProperty.call(raw, 'token'));
+  const legacy = raw && (Object.prototype.hasOwnProperty.call(raw, 'invite') || !raw.version || raw.version < DEFAULT.version || Object.prototype.hasOwnProperty.call(raw, 'token'));
   const profile = normalize(migrate(raw));
   if (legacy) saveProfile(profile);
   return profile;
