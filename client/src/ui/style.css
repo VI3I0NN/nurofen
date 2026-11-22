@@ -641,18 +641,6 @@ b { font-weight: 600; }
   font-size: 10.5px;
 }
 
-.mc-link {
-  flex: 0 0 auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: 11px;
-}
-
-.mc-link:hover { text-decoration: underline; text-underline-offset: 2px; }
-
 .members {
   flex: 0 0 auto;
   border: 1px solid var(--line);
@@ -755,6 +743,9 @@ b { font-weight: 600; }
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+.peer-sub { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.peer-sub .ip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .peer .ping { font-family: var(--mono); font-size: 11px; color: var(--faint); white-space: nowrap; }
 .peer-connection { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
@@ -1056,6 +1047,7 @@ body.tool-window .modal-body { flex: 1 1 auto; min-height: 0; }
 .settings-line:first-of-type { border-top: 0; }
 .settings-line > span { color: var(--muted); }
 .settings-line > b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-line > b.on { color: var(--accent); }
 .slim-ghost { padding: 4px 10px; font-size: 12px; }
 
 .mc-input {

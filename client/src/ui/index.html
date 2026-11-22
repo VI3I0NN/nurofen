@@ -143,7 +143,6 @@
       <p class="mc-hint" id="mcHint">Откройте мир и нажмите «Открыть для сети».</p>
       <div class="mc-foot">
         <span class="mc-path" id="mcPath" title=""></span>
-        <button type="button" class="mc-link" id="mcPickDir">Указать папку…</button>
       </div>
     </section>
 
@@ -242,6 +241,23 @@
             <p class="modal-note">Подойдёт папка игры или корень лаунчера. Поддерживаются .minecraft,
               TLauncher Legacy, Legacy Launcher, Prism, PineconeMC, MultiMC, Modrinth, ATLauncher,
               GDLauncher и CurseForge.</p>
+          </section>
+
+          <section class="settings-group">
+            <h3>Сервер Minecraft</h3>
+            <div class="settings-line">
+              <span>Папка с server.jar</span>
+              <b id="setServerDir">не задана</b>
+            </div>
+            <input class="mc-input" id="setServerPath" type="text" spellcheck="false" autocomplete="off"
+              placeholder="Необязательно — папка с server.jar">
+            <div class="mc-actions">
+              <button type="button" class="ghost slim-ghost" id="setServerPick">Выбрать папку…</button>
+              <button type="button" class="ghost slim-ghost" id="setServerSave">Сохранить путь</button>
+              <button type="button" class="ghost slim-ghost" id="setServerClear">Убрать</button>
+            </div>
+            <p class="modal-note">Если сервер запущен, друзьям раздаётся его адрес вместо LAN-мира.
+              Порт берётся из server.properties.</p>
           </section>
 
           <section class="settings-group">

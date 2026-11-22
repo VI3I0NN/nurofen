@@ -1,5 +1,6 @@
 import fs from 'node:fs';
-import { findLatestLog } from './minecraftPaths.js';
+import net from 'node:net';
+import { findLatestLog, findServerDir, serverPort } from './minecraftPaths.js';
 
 const PORT_PATTERNS = [
   /Started serving on (\d{2,5})/i,
@@ -53,4 +54,46 @@ export function detectLanPort(configuredDir = '') {
 /** Where the running game keeps its log, used by the diagnostics panel. */
 export function minecraftLogPath(configuredDir = '') {
   return findLatestLog(configuredDir)?.file || null;
+}
+
+function portOpen(port, timeoutMs = 350) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: '127.0.0.1', port });
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+  });
+}
+
+/**
+ * A dedicated server (`server.jar`) keeps its port in `server.properties` and
+ * listens on localhost while it runs. Checking the port is how we tell a world
+ * that is ready to share from a folder that merely exists.
+ */
+const SERVER_CACHE_MS = 5000;
+let serverCache = { key: '', at: 0, running: false };
+
+export async function serverInfo(configuredDir = '', { refresh = false } = {}) {
+  const configured = String(configuredDir || '').trim();
+  const dir = configured ? findServerDir(configured) : '';
+  if (!dir) return { configured, dir: '', port: null, running: false };
+  const port = serverPort(dir);
+  const key = `${dir.toLowerCase()}|${port}`;
+  const now = Date.now();
+  let running;
+  if (!refresh && serverCache.key === key && now - serverCache.at < SERVER_CACHE_MS) {
+    running = serverCache.running;
+  } else {
+    running = await portOpen(port);
+    serverCache = { key, at: now, running };
+  }
+  return { configured, dir, port, running };
 }

@@ -19,8 +19,8 @@ import {
 import { defaultServerUrl, heartbeat, join, leave, normalizeServer, state as getState, rename, offline } from './api.js';
 import { helperAlive, helperInfo, ensureFirewall, ping, restartHelper, syncDirectPeers, tunnelDown, tunnelStatus, tunnelUp } from './tunnel.js';
 import { startHelper } from './helper.js';
-import { detectLanPort } from './minecraft.js';
-import { activeGameDir, resolveGameDir, scanGameDirs } from './minecraftPaths.js';
+import { detectLanPort, serverInfo } from './minecraft.js';
+import { activeGameDir, findServerDir, resolveGameDir, scanGameDirs } from './minecraftPaths.js';
 import { upsertServer } from './servers.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -67,6 +67,7 @@ const ui = {
   helperVersion: '',
   awg: false,
   minecraft: null,
+  server: null,
   logTail: [],
 };
 
@@ -85,6 +86,20 @@ function profile() {
 /** The game folder the user picked by hand; empty means auto-detect. */
 function configuredMinecraftDir(p = loadProfile()) {
   return String(p.settings?.minecraftDir || '').trim();
+}
+
+/** The dedicated server folder picked by hand; empty means none. */
+function configuredServerDir(p = loadProfile()) {
+  return String(p.settings?.minecraftServerDir || '').trim();
+}
+
+/**
+ * The port friends should join: a running dedicated server wins over a LAN
+ * world, because it was configured on purpose and stays up between sessions.
+ */
+function sharedLanPort() {
+  if (ui.server?.running) return ui.server.port;
+  return ui.minecraft?.port ?? null;
 }
 
 /**
@@ -392,6 +407,7 @@ function friendlyError(code) {
     update_cancelled: 'Обновление отменено.',
     bad_checksum: 'Скачанный файл повреждён. Попробуйте ещё раз.',
     minecraft_not_found: 'Папка Minecraft не найдена — укажите её в настройках.',
+    minecraft_server_not_found: 'В этой папке нет server.jar — выберите папку сервера.',
     bad_address: 'Некорректный адрес мира.',
   };
   if (map[code]) return map[code];
@@ -459,7 +475,7 @@ async function refreshPeers(member) {
         directIps: localDirectIps(),
         clientVersion: APP_VERSION,
         helperVersion: ui.helperVersion || null,
-        lanPort: ui.minecraft?.port ?? null,
+        lanPort: sharedLanPort(),
       })
       : await getState(member);
     if (data?.peers) state.peers = data.peers;
@@ -650,7 +666,7 @@ async function setDirect(id, value) {
         directIps: localDirectIps(),
         clientVersion: APP_VERSION,
         helperVersion: ui.helperVersion || null,
-        lanPort: ui.minecraft?.port ?? null,
+        lanPort: sharedLanPort(),
       });
       if (data?.peers) state.peers = data.peers;
     } catch {
@@ -670,6 +686,7 @@ async function tick() {
   // only reliable way to learn it without touching the game.
   const p = syncRuntime();
   ui.minecraft = detectLanPort(configuredMinecraftDir(p));
+  ui.server = await serverInfo(configuredServerDir(p));
   await Promise.all(p.networks.map(async (member) => {
     const state = runtimeFor(member.id);
     state.checkTick = (state.checkTick || 0) + 1;
@@ -1174,11 +1191,12 @@ function snapshot() {
     version: APP_VERSION,
     deviceName: p.deviceName,
     minecraft: { port: ui.minecraft?.port ?? null, at: ui.minecraft?.at ?? null, ...minecraft },
+    minecraftServer: ui.server || { configured: configuredServerDir(p), dir: '', port: null, running: false },
     minecraftInstalled: minecraft.installed,
     activeId: p.activeId,
     networks,
     update: { ...update },
-    settings: p.settings || { compactPeers: true, autoConnect: true, minecraftDir: '' },
+    settings: p.settings || { compactPeers: true, autoConnect: true, minecraftDir: '', minecraftServerDir: '' },
     helper: ui.helper,
     helperVersion: ui.helperVersion || '',
     helperStale: Boolean(ui.helper && compareVersions(ui.helperVersion, APP_VERSION) < 0),
@@ -1233,6 +1251,9 @@ const server = http.createServer(async (req, res) => {
             minecraftDir: body.minecraftDir === undefined
               ? configuredMinecraftDir(p)
               : String(body.minecraftDir || '').trim(),
+            minecraftServerDir: body.minecraftServerDir === undefined
+              ? configuredServerDir(p)
+              : String(body.minecraftServerDir || '').trim(),
           };
           saveProfile(p);
           json(res, 200, { ok: true, settings: p.settings });
@@ -1310,6 +1331,19 @@ const server = http.createServer(async (req, res) => {
           const info = minecraftInfo(p);
           pushLog('info', info.dir ? `папка Minecraft: ${info.dir}` : 'папка Minecraft: автоопределение');
           json(res, 200, { ok: true, ...info });
+          return;
+        }
+        case '/api/minecraft/server': {
+          const value = String(body.dir || '').trim();
+          if (value && !findServerDir(value)) throw new Error('minecraft_server_not_found');
+          const p = loadProfile();
+          p.settings = { ...(p.settings || {}), minecraftServerDir: value };
+          saveProfile(p);
+          ui.server = await serverInfo(value, { refresh: true });
+          pushLog('info', ui.server.dir
+            ? `сервер Minecraft: ${ui.server.dir}${ui.server.running ? ` (порт ${ui.server.port})` : ' (не запущен)'}`
+            : 'сервер Minecraft: папка не выбрана');
+          json(res, 200, { ok: true, ...ui.server });
           return;
         }
         case '/api/minecraft/pick': {

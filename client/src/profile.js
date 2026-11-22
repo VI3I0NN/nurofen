@@ -11,6 +11,7 @@ const DEFAULT = {
     compactPeers: true,
     autoConnect: true,
     minecraftDir: '',
+    minecraftServerDir: '',
   },
   networks: [],
 };

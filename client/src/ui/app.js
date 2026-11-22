@@ -39,6 +39,7 @@ let toastTimer = null;
 // The settings window polls every couple of seconds; never overwrite a path
 // the user is typing or has just picked but not saved yet.
 let mcPathDirty = false;
+let mcServerPathDirty = false;
 
 async function api(route, body) {
   const res = await fetch(route, {
@@ -225,38 +226,50 @@ function renderMinecraft() {
   const panel = $('mcPanel');
   const installed = state?.minecraftInstalled === true;
   const mc = state?.minecraft || {};
+  const server = state?.minecraftServer || {};
   panel.hidden = false;
 
+  const net = activeNetwork();
+  const connected = net?.status === 'connected' && Boolean(net?.self?.ip);
+  const serverReady = server.running === true && Boolean(server.port);
+  const lanOpen = installed && Boolean(mc.port) && connected;
+  const sharedPort = serverReady ? server.port : (lanOpen ? mc.port : null);
+  const open = Boolean(sharedPort) && connected;
+
   const pathLabel = $('mcPath');
-  const shown = mc.dir || mc.configured || '';
+  const shown = serverReady ? server.dir : (mc.dir || mc.configured || server.configured || '');
   pathLabel.textContent = shown;
   pathLabel.title = shown;
   pathLabel.hidden = !shown;
 
-  if (!installed) {
-    $('mcState').textContent = 'не найден';
-    $('mcState').classList.remove('on');
-    $('mcWorld').hidden = true;
-    $('mcHint').hidden = false;
-    $('mcHint').textContent = mc.configured
-      ? 'В указанной папке Minecraft не найден — проверьте путь в настройках.'
-      : 'Minecraft не найден на этом компьютере.';
+  if (open) {
+    $('mcState').textContent = serverReady ? 'сервер запущен' : 'мир открыт';
+    $('mcState').classList.add('on');
+    $('mcWorld').hidden = false;
+    $('mcHint').hidden = true;
+    const address = `${net.self.ip}:${sharedPort}`;
+    $('mcAddr').textContent = address;
+    $('mcAddr').title = address;
     return;
   }
 
-  const net = activeNetwork();
-  const open = Boolean(mc.port) && net?.status === 'connected' && Boolean(net?.self?.ip);
-  $('mcState').textContent = open ? 'мир открыт' : 'не открыт';
-  $('mcState').classList.toggle('on', open);
-  $('mcWorld').hidden = !open;
-  $('mcHint').hidden = open;
+  $('mcWorld').hidden = true;
+  $('mcHint').hidden = false;
+  $('mcState').textContent = serverReady ? 'сервер запущен' : (installed ? 'не открыт' : 'не найден');
+  $('mcState').classList.toggle('on', serverReady);
 
-  if (open) {
-    const address = `${net.self.ip}:${mc.port}`;
-    $('mcAddr').textContent = address;
-    $('mcAddr').title = address;
+  if (serverReady) {
+    $('mcHint').textContent = 'Включите сеть, чтобы поделиться сервером.';
+  } else if (server.dir) {
+    $('mcHint').textContent = `Сервер найден, но не запущен · порт ${server.port || 25565}.`;
+  } else if (server.configured) {
+    $('mcHint').textContent = 'Папка сервера не найдена — проверьте путь в настройках.';
+  } else if (!installed) {
+    $('mcHint').textContent = mc.configured
+      ? 'В указанной папке Minecraft не найден — проверьте путь в настройках.'
+      : 'Minecraft не найден — укажите папку в настройках.';
   } else {
-    $('mcHint').textContent = net?.status === 'connected'
+    $('mcHint').textContent = connected
       ? 'Откройте мир и нажмите «Открыть для сети».'
       : 'Включите сеть, чтобы поделиться миром.';
   }
@@ -316,8 +329,8 @@ function renderPeers() {
         <div class="peer ${online ? 'online' : ''}">
           <span class="avatar ${peerTone(peer.name)}">${escapeHtml(initials(peer.name))}</span>
           <div class="peer-main">
-            <span class="name"><span class="name-text">${escapeHtml(peer.name)}</span>${peer.self ? '<span class="tag-self">вы</span>' : ''}${playButton}</span>
-            <span class="ip">${escapeHtml(peer.ip)}</span>
+            <span class="name"><span class="name-text">${escapeHtml(peer.name)}</span>${peer.self ? '<span class="tag-self">вы</span>' : ''}</span>
+            <span class="peer-sub"><span class="ip">${escapeHtml(peer.ip)}</span>${playButton}</span>
           </div>
           <span class="peer-connection"><span class="presence ${online ? 'online' : ''}">${online ? 'В сети' : 'Не в сети'}</span><span class="ping ${pingClass}" title="Время ответа участника; нет ответа может означать блокировку ICMP">${pingText}${routeText}</span></span>
           <button type="button" class="copy" data-copy="${escapeHtml(peer.ip)}" title="Скопировать адрес"
@@ -437,6 +450,15 @@ function renderSettings() {
       return `<button type="button" class="mc-found-item" data-mc-path="${escapeHtml(item.path)}" title="${escapeHtml(item.path)}">${escapeHtml(label)}</button>`;
     }).join('')}`
     : '';
+
+  const server = state.minecraftServer || {};
+  const serverInput = $('setServerPath');
+  if (!mcServerPathDirty && document.activeElement !== serverInput) serverInput.value = server.configured || '';
+  $('setServerDir').textContent = server.running
+    ? `запущен · ${server.port}`
+    : server.dir ? 'найден, не запущен' : server.configured ? 'не найден' : 'не задана';
+  $('setServerDir').classList.toggle('on', server.running === true);
+  $('setServerDir').title = server.dir || server.configured || '';
 }
 
 async function saveSettings(patch = {}) {
@@ -834,7 +856,59 @@ $('setMcFound').addEventListener('click', (event) => {
   mcPathDirty = true;
 });
 
-$('mcPickDir').addEventListener('click', () => openTool('settings'));
+$('setServerPath').addEventListener('input', () => { mcServerPathDirty = true; });
+
+$('setServerPick').addEventListener('click', async () => {
+  const button = $('setServerPick');
+  button.disabled = true;
+  try {
+    const result = await api('/api/minecraft/pick');
+    if (result?.cancelled) return;
+    if (!result?.path) {
+      toast('Не удалось открыть выбор папки');
+      return;
+    }
+    $('setServerPath').value = result.path;
+    mcServerPathDirty = true;
+    toast('Папка выбрана — нажмите «Сохранить путь»');
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('setServerSave').addEventListener('click', async () => {
+  const button = $('setServerSave');
+  button.disabled = true;
+  try {
+    const value = $('setServerPath').value.trim();
+    const result = await api('/api/minecraft/server', { dir: value });
+    if (!result?.ok) {
+      toast(result?.error || 'Не удалось сохранить путь сервера');
+      return;
+    }
+    mcServerPathDirty = false;
+    toast(result.running
+      ? `Сервер запущен на порту ${result.port}`
+      : result.dir ? 'Папка сервера сохранена — сервер не запущен' : 'Путь к серверу убран');
+    await poll();
+    renderModal();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('setServerClear').addEventListener('click', async () => {
+  $('setServerPath').value = '';
+  mcServerPathDirty = false;
+  const result = await api('/api/minecraft/server', { dir: '' });
+  if (!result?.ok) {
+    toast(result?.error || 'Не удалось убрать путь сервера');
+    return;
+  }
+  toast('Путь к серверу убран');
+  await poll();
+  renderModal();
+});
 
 $('nicknameSave').addEventListener('click', async () => {
   $('nicknameSave').disabled = true;

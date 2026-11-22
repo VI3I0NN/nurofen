@@ -96,6 +96,49 @@ export function isGameDir(dir) {
   return GAME_MARKERS.some((name) => exists(path.join(dir, name)));
 }
 
+const SERVER_MARKERS = ['server.jar', 'server.properties', 'eula.txt'];
+
+/** A dedicated server folder is the one that holds server.jar and its config. */
+export function isServerDir(dir) {
+  if (!dir || !isDir(dir)) return false;
+  return SERVER_MARKERS.some((name) => exists(path.join(dir, name)));
+}
+
+/**
+ * Resolves a folder picked by hand for a dedicated server: the folder itself,
+ * or its parent when it contains exactly the usual `server` subfolder.
+ */
+export function findServerDir(value) {
+  const dir = expandPath(value);
+  if (!dir || !isDir(dir)) return null;
+  if (isServerDir(dir)) return dir;
+
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const candidates = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(dir, entry.name))
+    .filter((candidate) => isServerDir(candidate));
+  return candidates.sort((a, b) => stamp(b) - stamp(a))[0] || null;
+}
+
+/** Port the server listens on; `server.properties` defaults to 25565. */
+export function serverPort(dir) {
+  if (!dir) return 25565;
+  try {
+    const text = fs.readFileSync(path.join(dir, 'server.properties'), 'utf8');
+    const match = text.match(/^\s*server-port\s*=\s*(\d{1,5})\s*$/m);
+    const port = match ? Number(match[1]) : 25565;
+    return port > 0 && port < 65536 ? port : 25565;
+  } catch {
+    return 25565;
+  }
+}
+
 function newest(items) {
   return [...items].sort((a, b) => b.mtime - a.mtime)[0] || null;
 }

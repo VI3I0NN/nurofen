@@ -13,7 +13,7 @@
 param(
   [string]$Server = 'http://201.58.187.214:8787',
   [string]$Output = '',
-  [string]$Notes = 'Путь к папке Minecraft: автоопределение популярных лаунчеров и выбор папки вручную.'
+  [string]$Notes = 'Сервер Minecraft (server.jar) и путь к папке игры в настройках.'
 )
 
 $ErrorActionPreference = 'Stop'
