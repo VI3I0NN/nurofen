@@ -23,6 +23,7 @@ import { detectLanPort, serverInfo } from './minecraft.js';
 import { keepStatuses, splitAddress, statusFor } from './mcstatus.js';
 import { activeGameDir, findServerDir, resolveGameDir, runningGameDir, scanGameDirs } from './minecraftPaths.js';
 import { readServers, upsertServer } from './servers.js';
+import { launchGame, playInfo } from './play.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(HERE, '..');
@@ -164,6 +165,33 @@ function pickDirectoryFallback() {
       '$d.Description = "Папка Minecraft"',
       '$d.ShowNewFolderButton = $false',
       `if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [IO.File]::WriteAllText('${quoted}', $d.SelectedPath, [Text.Encoding]::UTF8) }`,
+    ].join('; ');
+    const child = spawn('powershell.exe', ['-NoProfile', '-STA', '-Command', script], { windowsHide: true });
+    child.on('error', () => resolve(''));
+    child.on('close', () => {
+      let picked = '';
+      try {
+        picked = fs.readFileSync(outFile, 'utf8').trim();
+        fs.unlinkSync(outFile);
+      } catch {
+        // cancelled or the file was never written
+      }
+      resolve(picked);
+    });
+  });
+}
+
+/** The same picker for a launcher executable, used without the Electron shell. */
+function pickFileFallback() {
+  return new Promise((resolve) => {
+    const outFile = path.join(os.tmpdir(), `nurofen-exe-${randomUUID()}.txt`);
+    const quoted = outFile.replace(/'/g, "''");
+    const script = [
+      'Add-Type -AssemblyName System.Windows.Forms',
+      '$d = New-Object System.Windows.Forms.OpenFileDialog',
+      '$d.Title = "Исполняемый файл лаунчера"',
+      '$d.Filter = "Программы (*.exe)|*.exe"',
+      `if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [IO.File]::WriteAllText('${quoted}', $d.FileName, [Text.Encoding]::UTF8) }`,
     ].join('; ');
     const child = spawn('powershell.exe', ['-NoProfile', '-STA', '-Command', script], { windowsHide: true });
     child.on('error', () => resolve(''));
@@ -438,6 +466,10 @@ function friendlyError(code) {
     minecraft_not_found: 'Папка Minecraft не найдена — укажите её в настройках.',
     minecraft_server_not_found: 'В этой папке нет server.jar — выберите папку сервера.',
     bad_address: 'Некорректный адрес мира.',
+    play_launcher_not_found: 'Лаунчер не найден — укажите путь к его исполняемому файлу.',
+    play_instance_not_found: 'В лаунчере нет выбранной сборки.',
+    play_launch_failed: 'Не удалось запустить лаунчер. Проверьте путь к нему.',
+    play_exe_invalid: 'Такого файла нет — выберите исполняемый файл лаунчера.',
   };
   if (map[code]) return map[code];
   if (/elevat|access is denied|отказано/i.test(code)) {
@@ -1297,11 +1329,21 @@ function snapshot() {
     minecraftServer: ui.server || { configured: configuredServerDir(p), dir: '', port: null, running: false },
     minecraftInstalled: minecraft.installed,
     minecraftStatus,
+    play: playInfo(p.settings || {}),
     invite: ui.pendingInvite,
     activeId: p.activeId,
     networks,
     update: { ...update },
-    settings: p.settings || { compactPeers: true, autoConnect: true, notifyWorlds: true, minecraftDir: '', minecraftServerDir: '' },
+    settings: p.settings || {
+      compactPeers: true,
+      autoConnect: true,
+      notifyWorlds: true,
+      minecraftDir: '',
+      minecraftServerDir: '',
+      playExe: '',
+      playLauncher: '',
+      playInstance: '',
+    },
     helper: ui.helper,
     helperVersion: ui.helperVersion || '',
     helperStale: Boolean(ui.helper && compareVersions(ui.helperVersion, APP_VERSION) < 0),
@@ -1360,6 +1402,15 @@ const server = http.createServer(async (req, res) => {
             minecraftServerDir: body.minecraftServerDir === undefined
               ? configuredServerDir(p)
               : String(body.minecraftServerDir || '').trim(),
+            playExe: body.playExe === undefined
+              ? String(p.settings?.playExe || '')
+              : String(body.playExe || '').trim(),
+            playLauncher: body.playLauncher === undefined
+              ? String(p.settings?.playLauncher || '')
+              : String(body.playLauncher || ''),
+            playInstance: body.playInstance === undefined
+              ? String(p.settings?.playInstance || '')
+              : String(body.playInstance || ''),
           };
           saveProfile(p);
           json(res, 200, { ok: true, settings: p.settings });
@@ -1513,6 +1564,51 @@ const server = http.createServer(async (req, res) => {
           }
           const resolved = resolveGameDir(picked);
           json(res, 200, { ok: Boolean(resolved), path: picked, dir: resolved || '' });
+          return;
+        }
+        case '/api/play/refresh': {
+          const p = loadProfile();
+          json(res, 200, { ok: true, play: playInfo(p.settings || {}, { refresh: true }) });
+          return;
+        }
+        case '/api/play/select': {
+          const p = loadProfile();
+          p.settings = {
+            ...(p.settings || {}),
+            playLauncher: String(body.launcher || ''),
+            playInstance: String(body.instance || ''),
+          };
+          saveProfile(p);
+          json(res, 200, { ok: true, play: playInfo(p.settings) });
+          return;
+        }
+        case '/api/play/launch': {
+          const p = loadProfile();
+          const result = await launchGame({
+            launcher: body.launcher,
+            instance: body.instance,
+            address: body.address,
+            name: body.name,
+            settings: p.settings || {},
+          });
+          pushLog('ok', `Nurofen Play: ${result.message}${result.address ? ` (${result.address})` : ''}`);
+          json(res, 200, result);
+          return;
+        }
+        case '/api/play/exe': {
+          const value = String(body.path || '').trim();
+          if (value && !fs.existsSync(value)) throw new Error('play_exe_invalid');
+          const p = loadProfile();
+          p.settings = { ...(p.settings || {}), playExe: value };
+          saveProfile(p);
+          json(res, 200, { ok: true, play: playInfo(p.settings, { refresh: true }) });
+          return;
+        }
+        case '/api/play/pick': {
+          const picked = ELECTRON?.pickFile
+            ? await ELECTRON.pickFile()
+            : await pickFileFallback();
+          json(res, 200, picked ? { ok: true, path: picked } : { ok: false, cancelled: true });
           return;
         }
         case '/api/update/check': {

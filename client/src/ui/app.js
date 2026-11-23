@@ -24,6 +24,7 @@ const TOOL_SIZES = {
   update: [360, 560],
   diagnostics: [400, 600],
   about: [340, 400],
+  play: [640, 700],
 };
 
 const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
@@ -108,6 +109,10 @@ function activeNetwork() {
 
 function render() {
   if (!state) return;
+  if (TOOL_KIND === 'play') {
+    renderPlay();
+    return;
+  }
   document.body.classList.toggle('compact-peers', state.settings?.compactPeers === true);
   if (!networks().length) joinOpen = true;
   if (joinOpen) {
@@ -392,6 +397,170 @@ function paintPeers(markup) {
   $('peers').innerHTML = markup;
 }
 
+/* -------------------------------------------------------------------- play */
+
+let playBuildsMarkup = null;
+let playWorldsMarkup = null;
+let playLaunching = false;
+
+/** Worlds friends share over the network, in the same shape as the peer list. */
+function playWorlds() {
+  const list = [];
+  const seen = new Set();
+  for (const net of networks()) {
+    if (net.status !== 'connected') continue;
+    for (const peer of net.peers || []) {
+      if (peer.self || !peer.online || !peer.lanPort) continue;
+      const address = `${peer.ip}:${peer.lanPort}`;
+      if (seen.has(address)) continue;
+      seen.add(address);
+      list.push({
+        address,
+        name: String(peer.name || peer.ip),
+        network: net.network?.name || '',
+        status: worldStatus(address),
+      });
+    }
+  }
+  return list;
+}
+
+function selectedBuild(play) {
+  const selected = play?.selected;
+  if (!selected) return null;
+  const launcher = (play.launchers || []).find((item) => item.id === selected.launcher);
+  const instance = (launcher?.instances || []).find((item) => item.id === selected.instance);
+  return launcher && instance ? { launcher, instance } : null;
+}
+
+function playBuildMarkup(play) {
+  const launchers = play?.launchers || [];
+  if (!launchers.length) {
+    return '<div class="play-empty">Лаунчер не найден.<br>Установите Prism Launcher, PineconeMC или TLauncher Legacy — либо укажите путь к его .exe.</div>';
+  }
+  const selected = play.selected || {};
+  return launchers.map((launcher) => {
+    const instances = (launcher.instances || []).map((instance) => {
+      const active = launcher.id === selected.launcher && instance.id === selected.instance;
+      const meta = [
+        instance.version ? `Minecraft ${instance.version}` : '',
+        instance.loader ? `${instance.loader}${instance.loaderVersion ? ` ${instance.loaderVersion}` : ''}` : '',
+      ].filter(Boolean).join(' · ');
+      return `
+        <button type="button" class="play-build ${active ? 'active' : ''}"
+                data-play-build="${escapeHtml(launcher.id)}" data-play-instance="${escapeHtml(instance.id)}"
+                ${launcher.available ? '' : 'disabled'}>
+          <span class="play-build-dot" aria-hidden="true"></span>
+          <span class="play-build-main">
+            <span class="play-build-name">${escapeHtml(instance.name)}</span>
+            <span class="play-build-meta">${escapeHtml(meta || instance.note || 'Сборка лаунчера')}</span>
+          </span>
+        </button>`;
+    }).join('');
+    const note = launcher.available ? '' : (launcher.note || 'не найден');
+    return `
+      <div class="play-group">
+        <div class="play-group-head">
+          <span class="play-group-name">${escapeHtml(launcher.name)}</span>
+          ${note ? `<span class="play-group-note">${escapeHtml(note)}</span>` : ''}
+        </div>
+        ${instances || '<div class="play-empty small">В этом лаунчере нет сборок.</div>'}
+      </div>`;
+  }).join('');
+}
+
+function playWorldMarkup(worlds, play) {
+  if (!worlds.length) {
+    const connected = networks().some((net) => net.status === 'connected');
+    return connected
+      ? '<div class="play-empty">Пока никто не открыл мир.<br>Друг открывает мир для сети — он появится здесь.</div>'
+      : '<div class="play-empty">Сеть не подключена.<br>Включите сеть — здесь появятся миры друзей.</div>';
+  }
+  const ready = Boolean(selectedBuild(play));
+  return worlds.map((world) => {
+    const status = world.status;
+    const players = status?.online ? status.players || {} : null;
+    const online = Number.isFinite(players?.online) ? players.online : null;
+    const meta = [];
+    if (online != null) meta.push(players.max ? `${online}/${players.max} игроков` : `${online} игроков`);
+    if (status?.version) meta.push(status.version);
+    if (world.network) meta.push(world.network);
+    return `
+      <div class="play-world">
+        <div class="play-world-main">
+          <span class="play-world-name">${escapeHtml(world.name)}</span>
+          <span class="play-world-addr">${escapeHtml(world.address)}</span>
+          <span class="play-world-meta">${escapeHtml(meta.join(' · ') || 'Мир открыт')}</span>
+        </div>
+        <button type="button" class="ghost slim-ghost" data-play-world="${escapeHtml(world.address)}"
+                data-play-world-name="${escapeHtml(world.name)}" ${ready ? '' : 'disabled'}>Подключиться</button>
+      </div>`;
+  }).join('');
+}
+
+function renderPlay() {
+  const play = state?.play || {};
+  const builds = playBuildMarkup(play);
+  if (builds !== playBuildsMarkup) {
+    playBuildsMarkup = builds;
+    $('playBuilds').innerHTML = builds;
+  }
+
+  const worlds = playWorlds();
+  const worldMarkup = playWorldMarkup(worlds, play);
+  if (worldMarkup !== playWorldsMarkup) {
+    playWorldsMarkup = worldMarkup;
+    $('playWorlds').innerHTML = worldMarkup;
+  }
+  $('playWorldsCount').textContent = worlds.length ? String(worlds.length) : '';
+
+  const chosen = selectedBuild(play);
+  const summary = $('playSelected');
+  if (chosen) {
+    const meta = [chosen.launcher.name, chosen.instance.loader].filter(Boolean).join(' · ');
+    const version = chosen.instance.version
+      ? `<code>Minecraft ${escapeHtml(chosen.instance.version)}</code>`
+      : '';
+    const parts = [escapeHtml(meta), version].filter(Boolean).join(' · ');
+    summary.innerHTML = `<b>${escapeHtml(chosen.instance.name)}</b><span>${parts}</span>`;
+  } else {
+    summary.innerHTML = '<b>Сборка не выбрана</b><span>Выберите сборку выше</span>';
+  }
+
+  const launch = $('playLaunch');
+  launch.disabled = playLaunching || !chosen;
+  launch.textContent = playLaunching ? 'Запускаю…' : 'Играть';
+
+  const input = $('playExePath');
+  if (document.activeElement !== input) input.value = play.configuredExe || '';
+}
+
+async function launchPlay({ address = '', name = '' } = {}) {
+  const chosen = selectedBuild(state?.play);
+  if (!chosen || playLaunching) return;
+  playLaunching = true;
+  renderPlay();
+  try {
+    const result = await api('/api/play/launch', {
+      launcher: chosen.launcher.id,
+      instance: chosen.instance.id,
+      address,
+      name,
+    });
+    if (!result?.ok) {
+      toast(result?.error || 'Не удалось запустить игру');
+      return;
+    }
+    toast(result.message || 'Игра запускается');
+    await poll();
+  } catch {
+    toast('Не удалось запустить игру');
+  } finally {
+    playLaunching = false;
+    renderPlay();
+  }
+}
+
 function renderStatusbar() {
   const net = activeNetwork();
   if (!net) return;
@@ -435,7 +604,7 @@ function renderMenu() {
 /* ------------------------------------------------------------------- modal */
 
 function openTool(kind) {
-  if (!PANES[kind]) return;
+  if (kind !== 'play' && !PANES[kind]) return;
   const [width, height] = TOOL_SIZES[kind] || [360, 560];
   const url = `?tool=${encodeURIComponent(kind)}`;
   const name = `nurofen-${kind}`;
@@ -746,6 +915,99 @@ $('editNickBtn').addEventListener('click', () => openTool('nickname'));
 $('addNetBtn').addEventListener('click', openJoin);
 $('joinBack').addEventListener('click', closeJoin);
 
+$('playLaunch').addEventListener('click', () => launchPlay());
+
+$('playRefresh').addEventListener('click', async () => {
+  const button = $('playRefresh');
+  button.disabled = true;
+  button.classList.add('busy');
+  try {
+    const result = await api('/api/play/refresh');
+    if (result?.ok && state) state.play = result.play;
+    renderPlay();
+  } finally {
+    button.disabled = false;
+    button.classList.remove('busy');
+  }
+});
+
+$('playBuilds').addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-play-build]');
+  if (!button || button.disabled) return;
+  const result = await api('/api/play/select', {
+    launcher: button.dataset.playBuild,
+    instance: button.dataset.playInstance,
+  });
+  if (!result?.ok) {
+    toast(result?.error || 'Не удалось выбрать сборку');
+    return;
+  }
+  if (state) state.play = result.play;
+  renderPlay();
+});
+
+$('playWorlds').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-play-world]');
+  if (!button || button.disabled) return;
+  launchPlay({ address: button.dataset.playWorld, name: button.dataset.playWorldName || '' });
+});
+
+$('playExeBtn').addEventListener('click', () => {
+  const row = $('playExeRow');
+  row.hidden = !row.hidden;
+  if (!row.hidden) $('playExePath').focus();
+});
+
+$('playExePath').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') $('playExeSave').click();
+});
+
+$('playExePick').addEventListener('click', async () => {
+  const button = $('playExePick');
+  button.disabled = true;
+  try {
+    const result = await api('/api/play/pick');
+    if (result?.cancelled) return;
+    if (!result?.path) {
+      toast('Не удалось открыть выбор файла');
+      return;
+    }
+    $('playExePath').value = result.path;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('playExeSave').addEventListener('click', async () => {
+  const button = $('playExeSave');
+  button.disabled = true;
+  try {
+    const result = await api('/api/play/exe', { path: $('playExePath').value.trim() });
+    if (!result?.ok) {
+      toast(result?.error || 'Не удалось сохранить путь');
+      return;
+    }
+    if (state) state.play = result.play;
+    const found = (result.play?.launchers || []).some((item) => item.available);
+    toast(found ? 'Лаунчер найден' : 'Путь сохранён, но лаунчер не распознан');
+    renderPlay();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('playExeAuto').addEventListener('click', async () => {
+  const result = await api('/api/play/exe', { path: '' });
+  if (!result?.ok) {
+    toast(result?.error || 'Не удалось вернуть автоопределение');
+    return;
+  }
+  if (state) state.play = result.play;
+  $('playExeRow').hidden = true;
+  toast('Поиск лаунчеров снова автоматический');
+  renderPlay();
+});
+
 $('directToggle').addEventListener('change', async (event) => {
   const net = activeNetwork();
   if (!net) return;
@@ -841,6 +1103,7 @@ document.querySelectorAll('[data-action]').forEach((button) => {
     else if (action === 'diagnostics') openTool('diagnostics');
     else if (action === 'settings') openTool('settings');
     else if (action === 'about') openTool('about');
+    else if (action === 'play') openTool('play');
     else if (action === 'leave') leaveNetwork();
     else if (action === 'quit') api('/api/quit');
   });
@@ -1099,7 +1362,12 @@ async function poll() {
   }
 }
 
-if (TOOL_KIND && PANES[TOOL_KIND]) {
+if (TOOL_KIND === 'play') {
+  document.body.classList.add('play-window');
+  document.title = 'Nurofen Play';
+  $('playView').hidden = false;
+  $('playExeRow').hidden = true;
+} else if (TOOL_KIND && PANES[TOOL_KIND]) {
   document.body.classList.add('tool-window');
   document.title = `${PANES[TOOL_KIND][1]} — Nurofen`;
   openModal(TOOL_KIND);

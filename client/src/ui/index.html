@@ -14,6 +14,9 @@
     </a>
 
     <nav class="menubar" aria-label="Главная навигация">
+      <button type="button" class="menu-button play-button" data-action="play" title="Nurofen Play — запуск игры" aria-label="Nurofen Play">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 3.9 3.1l.7 4.1a2.2 2.2 0 0 1-3.9 1.8l-1.6-1.9H7.9l-1.6 1.9A2.2 2.2 0 0 1 2.4 15.2l.7-4.1A4 4 0 0 1 7 8Z"/><path d="M8 11v3M6.5 12.5h3M16 11.5h.01M18 13.5h.01"/></svg>
+      </button>
       <div class="menu" data-menu="system">
         <button type="button" class="menu-button" aria-label="Система" title="Система">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H4zM8 20h8M12 16v4"/></svg>
@@ -152,6 +155,52 @@
       </header>
       <div class="peer-list" id="peers"></div>
     </section>
+  </main>
+
+  <!-- Nurofen Play: сборка и мир в один клик -->
+  <main class="play" id="playView" hidden>
+    <header class="play-head">
+      <div class="play-brand">nur<span class="brand-ring"></span>fen <span class="play-word">play</span></div>
+      <button type="button" class="play-refresh" id="playRefresh" title="Найти лаунчеры заново" aria-label="Найти лаунчеры заново">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 5v6h-6"/></svg>
+      </button>
+    </header>
+
+    <div class="play-scroll">
+      <section class="play-section">
+        <div class="play-section-head">
+          <span class="play-section-title">Сборка</span>
+          <button type="button" class="play-link" id="playExeBtn">Указать лаунчер…</button>
+        </div>
+        <div id="playBuilds"></div>
+        <div class="play-exe" id="playExeRow" hidden>
+          <input id="playExePath" type="text" spellcheck="false" autocomplete="off"
+                 placeholder="Путь к prismlauncher.exe или TLauncher.exe">
+          <div class="play-exe-actions">
+            <button type="button" class="ghost slim-ghost" id="playExePick">Выбрать файл…</button>
+            <button type="button" class="ghost slim-ghost" id="playExeSave">Сохранить</button>
+            <button type="button" class="ghost slim-ghost" id="playExeAuto">Авто</button>
+          </div>
+          <p>Поддерживаются Prism Launcher, PineconeMC и TLauncher Legacy. Если лаунчер установлен в необычное место, укажите его .exe — Nurofen запомнит путь.</p>
+        </div>
+      </section>
+
+      <section class="play-section">
+        <div class="play-section-head">
+          <span class="play-section-title">Миры друзей</span>
+          <span class="play-section-note" id="playWorldsCount"></span>
+        </div>
+        <div class="play-worlds" id="playWorlds"></div>
+      </section>
+    </div>
+
+    <footer class="play-foot">
+      <div class="play-selected" id="playSelected">
+        <b>Сборка не выбрана</b>
+        <span>Выберите сборку выше</span>
+      </div>
+      <button type="button" class="primary" id="playLaunch">Играть</button>
+    </footer>
   </main>
 
   <footer class="statusbar" id="statusbar" hidden>

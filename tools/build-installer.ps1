@@ -13,7 +13,7 @@
 param(
   [string]$Server = 'http://201.58.187.214:8787',
   [string]$Output = '',
-  [string]$Notes = 'Статус миров Minecraft, уведомления об открытых мирах и ссылка-приглашение в сеть.'
+  [string]$Notes = 'Nurofen Play: сборка и мир в один клик — Prism, PineconeMC, TLauncher Legacy.'
 )
 
 $ErrorActionPreference = 'Stop'

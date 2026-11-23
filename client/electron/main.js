@@ -27,6 +27,7 @@ const TOOL_WINDOWS = {
   update: { width: 360, height: 560, title: 'Обновления' },
   diagnostics: { width: 400, height: 600, title: 'Диагностика' },
   about: { width: 340, height: 400, title: 'О программе' },
+  play: { width: 640, height: 700, title: 'Nurofen Play' },
 };
 
 const ICON = [path.join(CLIENT, 'assets', 'nurofen.ico'), path.join(CLIENT, 'src', 'ui', 'nurofen.ico')]
@@ -433,6 +434,18 @@ if (!app.requestSingleInstanceLock()) {
         title: 'Папка Minecraft',
         buttonLabel: 'Выбрать',
         properties: ['openDirectory'],
+      };
+      const parent = win && !win.isDestroyed() ? win : null;
+      const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+      if (result.canceled || !result.filePaths?.length) return '';
+      return result.filePaths[0];
+    },
+    async pickFile() {
+      const options = {
+        title: 'Исполняемый файл лаунчера',
+        buttonLabel: 'Выбрать',
+        properties: ['openFile'],
+        filters: [{ name: 'Программы', extensions: ['exe'] }],
       };
       const parent = win && !win.isDestroyed() ? win : null;
       const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
