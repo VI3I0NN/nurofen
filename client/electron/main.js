@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Notification, Tray, nativeImage, session, dialog } from 'electron';
+import { app, BrowserWindow, Menu, Notification, Tray, nativeImage, session, dialog, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +28,8 @@ const TOOL_WINDOWS = {
   diagnostics: { width: 400, height: 600, title: 'Диагностика' },
   about: { width: 340, height: 400, title: 'О программе' },
   play: { width: 640, height: 700, title: 'Nurofen Play' },
+  files: { width: 460, height: 620, title: 'Передачи файлов' },
+  friends: { width: 420, height: 580, title: 'Друзья' },
 };
 
 const ICON = [path.join(CLIENT, 'assets', 'nurofen.ico'), path.join(CLIENT, 'src', 'ui', 'nurofen.ico')]
@@ -429,9 +431,9 @@ if (!app.requestSingleInstanceLock()) {
         // notifications are optional
       }
     },
-    async pickDirectory() {
+    async pickDirectory(title = 'Папка Minecraft') {
       const options = {
-        title: 'Папка Minecraft',
+        title: String(title || 'Папка Minecraft'),
         buttonLabel: 'Выбрать',
         properties: ['openDirectory'],
       };
@@ -451,6 +453,25 @@ if (!app.requestSingleInstanceLock()) {
       const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
       if (result.canceled || !result.filePaths?.length) return '';
       return result.filePaths[0];
+    },
+    async pickDocument() {
+      const options = {
+        title: 'Файл для отправки',
+        buttonLabel: 'Отправить',
+        properties: ['openFile'],
+        filters: [{ name: 'Все файлы', extensions: ['*'] }],
+      };
+      const parent = win && !win.isDestroyed() ? win : null;
+      const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+      if (result.canceled || !result.filePaths?.length) return '';
+      return result.filePaths[0];
+    },
+    reveal(target) {
+      try {
+        shell.showItemInFolder(String(target || ''));
+      } catch {
+        // revealing a file is optional
+      }
     },
     restart() {
       if (quittingStarted) return;

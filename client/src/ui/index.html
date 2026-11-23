@@ -39,6 +39,8 @@
           <button type="button" data-action="nickname">Изменить ник…</button>
           <button type="button" data-action="add">Добавить сеть…</button>
           <button type="button" data-action="invite">Пригласить в сеть…</button>
+          <button type="button" data-action="friends">Друзья…</button>
+          <button type="button" data-action="files">Передачи файлов…</button>
           <button type="button" data-action="toggle" id="menuToggle">Включить</button>
           <button type="button" data-action="leave" id="menuLeave" class="danger">Выйти из сети…</button>
         </div>
@@ -149,12 +151,36 @@
       <p class="mc-hint" id="mcHint">Откройте мир и нажмите «Открыть для сети».</p>
     </section>
 
+    <section class="transfers" id="transfersPanel" hidden>
+      <header class="transfers-head">
+        <span class="transfers-title">Передачи</span>
+        <span class="transfers-count" id="transfersCount"></span>
+      </header>
+      <div class="transfers-list" id="transfersList"></div>
+    </section>
+
     <section class="members">
       <header class="members-head">
         <span class="members-title">Участники</span>
-        <span class="members-count" id="peersCount"></span>
+        <div class="members-tools">
+          <span class="members-count" id="peersCount"></span>
+          <button type="button" class="peer-tool" id="friendsBtn" title="Друзья" aria-label="Друзья">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M16 5.5a3 3 0 0 1 0 5.8M17.5 14.2A5.5 5.5 0 0 1 21 19"/></svg>
+          </button>
+          <button type="button" class="peer-tool" id="filesBtn" title="Передачи файлов" aria-label="Передачи файлов">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5 12.5 19a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7.5-7.5"/></svg>
+          </button>
+        </div>
       </header>
       <div class="peer-list" id="peers"></div>
+    </section>
+
+    <section class="transfers" id="transfersPanel" hidden>
+      <header class="transfers-head">
+        <span class="transfers-title">Передачи</span>
+        <span class="transfers-count" id="transfersCount"></span>
+      </header>
+      <div class="transfers-list" id="transfersList"></div>
     </section>
   </main>
 
@@ -212,6 +238,19 @@
     <span id="statusCenter"></span>
     <span id="statusRight"></span>
   </footer>
+
+  <div class="incoming" id="incoming" hidden>
+    <div class="incoming-card" role="dialog" aria-modal="true" aria-labelledby="incomingTitle">
+      <span class="incoming-badge">Входящий файл</span>
+      <h3 id="incomingTitle">—</h3>
+      <p class="incoming-meta" id="incomingMeta">—</p>
+      <div class="incoming-actions">
+        <button type="button" class="ghost" id="incomingDecline">Отклонить</button>
+        <button type="button" class="primary slim" id="incomingAccept">Принять</button>
+      </div>
+      <p class="incoming-more" id="incomingMore" hidden></p>
+    </div>
+  </div>
 
   <div class="modal" id="modal" hidden>
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
@@ -314,6 +353,23 @@
           </section>
 
           <section class="settings-group">
+            <h3>Передачи файлов</h3>
+            <div class="settings-line">
+              <span>Папка для принятых файлов</span>
+              <b id="setFilesDir">Загрузки\Nurofen</b>
+            </div>
+            <input class="mc-input" id="setFilesPath" type="text" spellcheck="false" autocomplete="off"
+              placeholder="По умолчанию — Загрузки\Nurofen">
+            <div class="mc-actions">
+              <button type="button" class="ghost slim-ghost" id="setFilesPick">Выбрать папку…</button>
+              <button type="button" class="ghost slim-ghost" id="setFilesSave">Сохранить путь</button>
+              <button type="button" class="ghost slim-ghost" id="setFilesAuto">По умолчанию</button>
+            </div>
+            <p class="modal-note">Сюда сохраняются файлы, которые вы приняли. Отправлять файлы
+              можно участникам, которые сейчас в сети.</p>
+          </section>
+
+          <section class="settings-group">
             <h3>Устройство</h3>
             <div class="settings-line">
               <span>Ник</span>
@@ -337,6 +393,62 @@
             <dt>Сетей</dt><dd><code id="aboutNetworks">—</code></dd>
             <dt>Разработчик</dt><dd><code>VI3I0NN</code></dd>
           </dl>
+        </div>
+
+        <div id="paneFiles" hidden>
+          <section class="settings-group">
+            <h3>Отправить файл</h3>
+            <label class="field compact-field">
+              <span>Кому</span>
+              <select id="filePeer"></select>
+            </label>
+            <div class="file-picked" id="filePicked">Файл не выбран</div>
+            <div class="row">
+              <button class="ghost" id="filePick" type="button">Выбрать файл…</button>
+              <button class="primary slim" id="fileSend" type="button" disabled>Отправить</button>
+            </div>
+            <p class="modal-note">Получатель увидит запрос и должен принять файл. Передача идёт
+              через сеть Nurofen, интернет-сервер в ней не участвует.</p>
+          </section>
+
+          <section class="settings-group">
+            <h3>Передачи</h3>
+            <div class="file-list" id="fileList"></div>
+          </section>
+
+          <section class="settings-group">
+            <h3>Папка для принятых файлов</h3>
+            <div class="settings-line">
+              <span>Куда сохранять</span>
+              <b id="fileDir">—</b>
+            </div>
+            <input class="mc-input" id="fileDirPath" type="text" spellcheck="false" autocomplete="off"
+              placeholder="По умолчанию — Загрузки\Nurofen">
+            <div class="mc-actions">
+              <button type="button" class="ghost slim-ghost" id="fileDirPick">Выбрать папку…</button>
+              <button type="button" class="ghost slim-ghost" id="fileDirSave">Сохранить</button>
+              <button type="button" class="ghost slim-ghost" id="fileDirAuto">По умолчанию</button>
+            </div>
+          </section>
+
+          <p class="modal-note">Файлы сохраняются с уникальным именем и не перезаписывают
+            существующие. Отправка доступна только участникам, которые сейчас в сети.</p>
+        </div>
+
+        <div id="paneFriends" hidden>
+          <section class="settings-group">
+            <h3>В этой сети</h3>
+            <div class="friend-list" id="friendPeers"></div>
+          </section>
+
+          <section class="settings-group">
+            <h3>Мои друзья <span class="friend-count" id="friendCount"></span></h3>
+            <div class="friend-list" id="friendList"></div>
+          </section>
+
+          <p class="modal-note">Друзья сохраняются в профиле. Когда друг не в сети,
+            нажмите «Ссылка» и отправьте приглашение — форма подключения откроется
+            с названием и паролем сети.</p>
         </div>
       </div>
     </div>

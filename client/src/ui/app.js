@@ -13,6 +13,8 @@ const PANES = {
   settings: ['paneSettings', 'Настройки'],
   update: ['paneUpdate', 'Обновления'],
   about: ['paneAbout', 'О программе'],
+  files: ['paneFiles', 'Передачи файлов'],
+  friends: ['paneFriends', 'Друзья'],
 };
 
 // Settings, updates and the other utility panes live in their own windows.
@@ -25,9 +27,12 @@ const TOOL_SIZES = {
   diagnostics: [400, 600],
   about: [340, 400],
   play: [640, 700],
+  files: [460, 620],
+  friends: [420, 580],
 };
 
 const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
+const FRIEND_STAR = '<svg class="friend-star" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9Z"/></svg>';
 
 let state = null;
 let activeId = null;
@@ -46,6 +51,9 @@ const knownWorlds = new Map();
 // the user is typing or has just picked but not saved yet.
 let mcPathDirty = false;
 let mcServerPathDirty = false;
+let filesDirDirty = false;
+let pickedFile = null;
+let fileSending = false;
 
 async function api(route, body) {
   const res = await fetch(route, {
@@ -96,6 +104,82 @@ function toast(message) {
   }, 3400);
 }
 
+function formatBytes(value) {
+  const bytes = Number(value) || 0;
+  if (bytes < 1024) return `${bytes} Б`;
+  const units = ['КБ', 'МБ', 'ГБ', 'ТБ'];
+  let size = bytes;
+  let unit = -1;
+  do {
+    size /= 1024;
+    unit += 1;
+  } while (size >= 1024 && unit < units.length - 1);
+  const digits = size >= 100 ? 0 : size >= 10 ? 1 : 2;
+  return `${size.toFixed(digits).replace('.', ',')} ${units[unit]}`;
+}
+
+function formatSpeed(value) {
+  const speed = Number(value) || 0;
+  return speed > 0 ? `${formatBytes(speed)}/с` : '';
+}
+
+const FILE_STATUS = {
+  offering: 'Отправляю запрос…',
+  waiting: 'Ждёт подтверждения',
+  pending: 'Входящий файл',
+  accepted: 'Готов к приёму',
+  done: 'Готово',
+  declined: 'Отклонено',
+  cancelled: 'Отменено',
+  timeout: 'Нет ответа',
+  error: 'Ошибка',
+};
+
+function fileStatus(transfer) {
+  if (transfer.direction === 'in') {
+    if (transfer.status === 'active') return 'Получение';
+    if (transfer.status === 'done') return 'Получено';
+  } else {
+    if (transfer.status === 'active') return 'Отправка';
+    if (transfer.status === 'done') return 'Отправлено';
+  }
+  if (transfer.status === 'accepted') {
+    return transfer.direction === 'out' ? 'Получатель принял' : 'Готов к приёму';
+  }
+  return FILE_STATUS[transfer.status] || transfer.status;
+}
+
+/** Every online participant across all connected networks. */
+function sendPeers() {
+  const list = [];
+  const seen = new Set();
+  for (const net of networks()) {
+    if (net.status !== 'connected') continue;
+    for (const peer of net.peers || []) {
+      if (peer.self || !peer.online) continue;
+      const key = `${net.id}:${peer.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({
+        networkId: net.id,
+        peerId: peer.id,
+        name: peer.name || peer.ip,
+        ip: peer.ip,
+        networkName: net.network?.name || '',
+      });
+    }
+  }
+  return list;
+}
+
+function friendIds() {
+  return new Set((state?.friends || []).map((friend) => friend.peerId));
+}
+
+function transfers() {
+  return state?.files?.transfers || [];
+}
+
 /* ------------------------------------------------------------------ render */
 
 function networks() {
@@ -113,6 +197,11 @@ function render() {
     renderPlay();
     return;
   }
+  if (TOOL_KIND && PANES[TOOL_KIND]) {
+    renderModal();
+    renderIncoming();
+    return;
+  }
   document.body.classList.toggle('compact-peers', state.settings?.compactPeers === true);
   if (!networks().length) joinOpen = true;
   if (joinOpen) {
@@ -125,8 +214,10 @@ function render() {
     renderDirect();
     renderMinecraft();
     renderPeers();
+    renderTransfers();
     renderStatusbar();
   }
+  renderIncoming();
   renderMenu();
   renderModal();
 }
@@ -371,11 +462,12 @@ function renderPeers() {
       const playButton = world
         ? `<button type="button" class="mc-play" data-play="${escapeHtml(world)}" data-name="${escapeHtml(peer.name)}" title="Добавить сервер ${escapeHtml(world)} в «Сетевую игру»">Добавить</button>`
         : '';
+      const friend = !peer.self && friendIds().has(peer.id);
       return `
         <div class="peer ${online ? 'online' : ''}">
           <span class="avatar ${peerTone(peer.name)}">${escapeHtml(initials(peer.name))}</span>
           <div class="peer-main">
-            <span class="name"><span class="name-text">${escapeHtml(peer.name)}</span>${peer.self ? '<span class="tag-self">вы</span>' : ''}</span>
+            <span class="name"><span class="name-text">${escapeHtml(peer.name)}</span>${friend ? `<span class="tag-friend" title="Друг">${FRIEND_STAR}</span>` : ''}${peer.self ? '<span class="tag-self">вы</span>' : ''}</span>
             <span class="peer-sub"><span class="ip">${escapeHtml(peer.ip)}</span>${playersChip}${playButton}</span>
           </div>
           <span class="peer-connection"><span class="presence ${online ? 'online' : ''}">${online ? 'В сети' : 'Не в сети'}</span><span class="ping ${pingClass}" title="${escapeHtml(pingTitle)}">${pingText}</span></span>
@@ -395,6 +487,245 @@ function paintPeers(markup) {
   if (markup === peersMarkup) return;
   peersMarkup = markup;
   $('peers').innerHTML = markup;
+}
+
+/* --------------------------------------------------------- files and friends */
+
+const FILE_TERMINAL = new Set(['done', 'declined', 'error', 'cancelled', 'timeout']);
+
+function pendingTransfers() {
+  return transfers().filter((item) => item.direction === 'in' && item.status === 'pending');
+}
+
+function transferMeta(transfer) {
+  const parts = [transfer.direction === 'out' ? `Для ${transfer.peerName}` : `От ${transfer.peerName}`];
+  if (transfer.networkName) parts.push(transfer.networkName);
+  parts.push(fileStatus(transfer));
+  if (transfer.status === 'active') {
+    if (transfer.percent) parts.push(`${transfer.percent}%`);
+    const speed = formatSpeed(transfer.speed);
+    if (speed) parts.push(speed);
+  }
+  if (transfer.error) parts.push(transfer.error);
+  return parts.filter(Boolean).join(' · ');
+}
+
+function transferActions(transfer) {
+  const id = escapeHtml(transfer.id);
+  const actions = [];
+  if (transfer.canAccept) {
+    actions.push(`<button type="button" class="primary slim" data-transfer="${id}" data-transfer-action="accept">Принять</button>`);
+  }
+  if (transfer.canDecline) {
+    actions.push(`<button type="button" class="ghost slim-ghost" data-transfer="${id}" data-transfer-action="decline">Отклонить</button>`);
+  }
+  if (transfer.canCancel && !transfer.canDecline) {
+    actions.push(`<button type="button" class="ghost slim-ghost" data-transfer="${id}" data-transfer-action="cancel">Отменить</button>`);
+  }
+  if (transfer.canReveal) {
+    actions.push(`<button type="button" class="ghost slim-ghost" data-transfer="${id}" data-transfer-action="reveal">Показать</button>`);
+  }
+  if (transfer.canDismiss) {
+    actions.push(`<button type="button" class="ghost slim-ghost" data-transfer="${id}" data-transfer-action="dismiss">Убрать</button>`);
+  }
+  return actions.join('');
+}
+
+function transferRowMarkup(transfer) {
+  const percent = transfer.status === 'done' ? 100 : transfer.percent || 0;
+  const stateClass = FILE_TERMINAL.has(transfer.status) ? ` ${transfer.status}` : '';
+  const meta = transferMeta(transfer);
+  return `
+    <div class="transfer-row${stateClass}">
+      <div class="transfer-top">
+        <span class="transfer-dir" aria-hidden="true">${transfer.direction === 'out' ? '↑' : '↓'}</span>
+        <span class="transfer-name" title="${escapeHtml(transfer.name)}">${escapeHtml(transfer.name)}</span>
+        <span class="transfer-size">${escapeHtml(formatBytes(transfer.size))}</span>
+      </div>
+      <div class="transfer-meta" title="${escapeHtml(meta)}">${escapeHtml(meta)}</div>
+      <div class="transfer-bar"><span style="width:${percent}%"></span></div>
+      <div class="transfer-actions">${transferActions(transfer)}</div>
+    </div>`;
+}
+
+let transfersMarkup = null;
+
+function renderTransfers() {
+  const panel = $('transfersPanel');
+  if (!panel) return;
+  const list = transfers();
+  panel.hidden = !list.length;
+  if (!list.length) {
+    if (transfersMarkup !== '') {
+      transfersMarkup = '';
+      $('transfersList').innerHTML = '';
+    }
+    $('transfersCount').textContent = '';
+    return;
+  }
+  const active = list.filter((item) => !FILE_TERMINAL.has(item.status)).length;
+  $('transfersCount').textContent = active ? `активных: ${active}` : `завершено: ${list.length}`;
+  const markup = list.map(transferRowMarkup).join('');
+  if (markup !== transfersMarkup) {
+    transfersMarkup = markup;
+    $('transfersList').innerHTML = markup;
+  }
+}
+
+function renderIncoming() {
+  const box = $('incoming');
+  if (!box) return;
+  const list = pendingTransfers();
+  if (!list.length) {
+    box.hidden = true;
+    return;
+  }
+  const transfer = list[0];
+  $('incomingTitle').textContent = transfer.name;
+  $('incomingMeta').textContent = [
+    transfer.peerName,
+    formatBytes(transfer.size),
+    transfer.networkName,
+  ].filter(Boolean).join(' · ');
+  const more = $('incomingMore');
+  more.hidden = list.length < 2;
+  more.textContent = list.length > 1 ? `Ещё запросов: ${list.length - 1}` : '';
+  box.hidden = false;
+}
+
+function fileCardMarkup(transfer) {
+  const percent = transfer.status === 'done' ? 100 : transfer.percent || 0;
+  const stateClass = FILE_TERMINAL.has(transfer.status) ? ` ${transfer.status}` : '';
+  const meta = transferMeta(transfer);
+  return `
+    <div class="file-card${stateClass}">
+      <div class="file-card-head">
+        <span class="file-card-name" title="${escapeHtml(transfer.name)}">${escapeHtml(transfer.name)}</span>
+        <span class="file-card-size">${escapeHtml(formatBytes(transfer.size))}</span>
+      </div>
+      <div class="file-card-meta" title="${escapeHtml(meta)}">${escapeHtml(meta)}</div>
+      <div class="transfer-bar"><span style="width:${percent}%"></span></div>
+      <div class="file-card-actions">${transferActions(transfer)}</div>
+    </div>`;
+}
+
+const FILE_PRESET = (() => {
+  const params = new URLSearchParams(location.search);
+  const net = params.get('net');
+  const peer = params.get('peer');
+  return net && peer ? `${net}|${peer}` : '';
+})();
+
+let filePeerOptions = null;
+let fileListMarkup = null;
+
+function renderFiles() {
+  const files = state?.files || {};
+  const peers = sendPeers();
+  const select = $('filePeer');
+  const options = peers.map((peer) => {
+    const value = `${peer.networkId}|${peer.peerId}`;
+    const label = `${peer.name} · ${peer.ip}${peer.networkName ? ` · ${peer.networkName}` : ''}`;
+    return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+  }).join('');
+  if (options !== filePeerOptions) {
+    const previous = select.value || FILE_PRESET;
+    select.innerHTML = options || '<option value="">Нет участников в сети</option>';
+    if (previous && [...select.options].some((option) => option.value === previous)) {
+      select.value = previous;
+    }
+    filePeerOptions = options;
+  }
+  select.disabled = !peers.length;
+
+  const picked = $('filePicked');
+  picked.textContent = pickedFile
+    ? `${pickedFile.name} · ${formatBytes(pickedFile.size)}`
+    : 'Файл не выбран';
+  picked.classList.toggle('on', Boolean(pickedFile));
+  picked.title = pickedFile?.path || '';
+
+  const send = $('fileSend');
+  send.disabled = fileSending || !pickedFile || !select.value;
+  send.textContent = fileSending ? 'Отправляю…' : 'Отправить';
+
+  const list = transfers();
+  const markup = list.length
+    ? list.map(fileCardMarkup).join('')
+    : '<div class="file-empty">Передач пока нет.</div>';
+  if (markup !== fileListMarkup) {
+    fileListMarkup = markup;
+    $('fileList').innerHTML = markup;
+  }
+
+  const input = $('fileDirPath');
+  if (!filesDirDirty && document.activeElement !== input) {
+    input.value = files.configured ? files.dir || '' : '';
+  }
+  $('fileDir').textContent = files.dir || '—';
+  $('fileDir').title = files.dir || '';
+}
+
+function friendActions(friend) {
+  const actions = [];
+  if (friend.online && friend.networkId) {
+    actions.push(`<button type="button" class="ghost slim-ghost" data-friend-file="${escapeHtml(friend.peerId)}" data-friend-net="${escapeHtml(friend.networkId)}">Файл</button>`);
+  }
+  if (friend.networkId) {
+    actions.push(`<button type="button" class="ghost slim-ghost" data-friend-invite="${escapeHtml(friend.networkId)}" title="Скопировать ссылку-приглашение в сеть">Ссылка</button>`);
+  }
+  actions.push(`<button type="button" class="ghost slim-ghost" data-friend-remove="${escapeHtml(friend.peerId)}">Убрать</button>`);
+  return actions.join('');
+}
+
+let friendsMarkup = null;
+
+function renderFriends() {
+  const peers = sendPeers();
+  const friends = state?.friends || [];
+  const known = friendIds();
+
+  const peerRows = peers.map((peer) => {
+    const isFriend = known.has(peer.peerId);
+    const actions = [
+      `<button type="button" class="ghost slim-ghost" data-friend-file="${escapeHtml(peer.peerId)}" data-friend-net="${escapeHtml(peer.networkId)}">Файл</button>`,
+      isFriend
+        ? `<button type="button" class="ghost slim-ghost" data-friend-remove="${escapeHtml(peer.peerId)}">Убрать</button>`
+        : `<button type="button" class="ghost slim-ghost" data-friend-add="${escapeHtml(peer.peerId)}">В друзья</button>`,
+    ].join('');
+    const meta = [peer.ip, peer.networkName].filter(Boolean).join(' · ');
+    return `
+      <div class="friend-row">
+        <span class="avatar ${peerTone(peer.name)}">${escapeHtml(initials(peer.name))}</span>
+        <div class="friend-main">
+          <span class="friend-name">${escapeHtml(peer.name)}</span>
+          <span class="friend-meta">${escapeHtml(meta || 'в сети')}</span>
+        </div>
+        <div class="friend-actions">${actions}</div>
+      </div>`;
+  }).join('');
+
+  const friendRows = friends.map((friend) => {
+    const meta = friend.online
+      ? [friend.ip, friend.networkName].filter(Boolean).join(' · ') || 'в сети'
+      : `Не в сети${friend.networkName ? ` · ${friend.networkName}` : ''}`;
+    return `
+      <div class="friend-row">
+        <span class="avatar ${peerTone(friend.name)}">${escapeHtml(initials(friend.name))}</span>
+        <div class="friend-main">
+          <span class="friend-name">${escapeHtml(friend.name)}</span>
+          <span class="friend-meta">${escapeHtml(meta)}</span>
+        </div>
+        <div class="friend-actions">${friendActions(friend)}</div>
+      </div>`;
+  }).join('');
+
+  $('friendCount').textContent = friends.length ? `· ${friends.length}` : '';
+  const signature = `${peerRows}\u0000${friendRows}`;
+  if (signature === friendsMarkup) return;
+  friendsMarkup = signature;
+  $('friendPeers').innerHTML = peerRows || '<div class="friend-empty">В этой сети сейчас никого нет.</div>';
+  $('friendList').innerHTML = friendRows || '<div class="friend-empty">Пока никого нет. Добавьте участника из списка выше — он останется в профиле и после выхода из сети.</div>';
 }
 
 /* -------------------------------------------------------------------- play */
@@ -603,10 +934,11 @@ function renderMenu() {
 
 /* ------------------------------------------------------------------- modal */
 
-function openTool(kind) {
+function openTool(kind, extra = {}) {
   if (kind !== 'play' && !PANES[kind]) return;
   const [width, height] = TOOL_SIZES[kind] || [360, 560];
-  const url = `?tool=${encodeURIComponent(kind)}`;
+  const params = new URLSearchParams({ tool: kind, ...extra });
+  const url = `?${params.toString()}`;
   const name = `nurofen-${kind}`;
   const features = `popup=yes,width=${width},height=${height}`;
   const existing = window.open(url, name, features);
@@ -645,6 +977,8 @@ function renderModal() {
   else if (modalKind === 'diagnostics') renderDiagnostics();
   else if (modalKind === 'settings') renderSettings();
   else if (modalKind === 'about') renderAbout();
+  else if (modalKind === 'files') renderFiles();
+  else if (modalKind === 'friends') renderFriends();
 }
 
 function renderSettings() {
@@ -912,6 +1246,8 @@ function updateJoinMode() {
 
 $('powerBtn').addEventListener('click', toggleConnection);
 $('editNickBtn').addEventListener('click', () => openTool('nickname'));
+$('filesBtn').addEventListener('click', () => openTool('files'));
+$('friendsBtn').addEventListener('click', () => openTool('friends'));
 $('addNetBtn').addEventListener('click', openJoin);
 $('joinBack').addEventListener('click', closeJoin);
 
@@ -1007,6 +1343,200 @@ $('playExeAuto').addEventListener('click', async () => {
   toast('Поиск лаунчеров снова автоматический');
   renderPlay();
 });
+
+/* ---------------------------------------------------------- file transfer ui */
+
+async function onTransferAction(event) {
+  const button = event.target.closest('[data-transfer-action]');
+  if (!button || button.disabled) return;
+  const action = button.dataset.transferAction;
+  const id = button.dataset.transfer;
+  button.disabled = true;
+  try {
+    const result = await api(`/api/files/${action}`, { id });
+    if (!result?.ok) toast(result?.error || 'Не удалось выполнить действие');
+    else if (action === 'reveal') toast('Файл открыт в папке');
+    await poll();
+  } catch {
+    toast('Не удалось связаться с клиентом');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$('transfersList').addEventListener('click', onTransferAction);
+$('fileList').addEventListener('click', onTransferAction);
+
+async function decideIncoming(action) {
+  const transfer = pendingTransfers()[0];
+  if (!transfer) return;
+  const button = action === 'accept' ? $('incomingAccept') : $('incomingDecline');
+  button.disabled = true;
+  try {
+    const result = await api(`/api/files/${action}`, { id: transfer.id });
+    if (!result?.ok) toast(result?.error || 'Не удалось ответить на запрос');
+    await poll();
+  } catch {
+    toast('Не удалось связаться с клиентом');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$('incomingAccept').addEventListener('click', () => decideIncoming('accept'));
+$('incomingDecline').addEventListener('click', () => decideIncoming('decline'));
+
+$('filePick').addEventListener('click', async () => {
+  const button = $('filePick');
+  button.disabled = true;
+  try {
+    const result = await api('/api/files/pick');
+    if (result?.cancelled) return;
+    if (!result?.ok || !result.path) {
+      toast(result?.error || 'Не удалось выбрать файл');
+      return;
+    }
+    pickedFile = { path: result.path, name: result.name || 'файл', size: result.size || 0 };
+    renderFiles();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('fileSend').addEventListener('click', async () => {
+  if (!pickedFile || fileSending) return;
+  const [networkId, peerId] = $('filePeer').value.split('|');
+  if (!networkId || !peerId) {
+    toast('Выберите участника в сети');
+    return;
+  }
+  const file = pickedFile;
+  fileSending = true;
+  renderFiles();
+  try {
+    const result = await api('/api/files/send', { networkId, peerId, path: file.path });
+    if (!result?.ok) {
+      toast(result?.error || 'Не удалось отправить файл');
+      return;
+    }
+    toast(`Запрос отправлен · ${file.name}`);
+    pickedFile = null;
+    await poll();
+  } catch {
+    toast('Не удалось отправить файл');
+  } finally {
+    fileSending = false;
+    renderFiles();
+  }
+});
+
+$('fileDirPath').addEventListener('input', () => { filesDirDirty = true; });
+
+$('fileDirPick').addEventListener('click', async () => {
+  const button = $('fileDirPick');
+  button.disabled = true;
+  try {
+    const result = await api('/api/files/pick-dir');
+    if (result?.cancelled) return;
+    if (!result?.path) {
+      toast('Не удалось открыть выбор папки');
+      return;
+    }
+    $('fileDirPath').value = result.path;
+    filesDirDirty = true;
+    toast('Папка выбрана — нажмите «Сохранить»');
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('fileDirSave').addEventListener('click', async () => {
+  const button = $('fileDirSave');
+  button.disabled = true;
+  try {
+    const value = $('fileDirPath').value.trim();
+    const result = await api('/api/settings', { ...(state?.settings || {}), filesDir: value });
+    if (!result?.ok) {
+      toast(result?.error || 'Не удалось сохранить папку');
+      return;
+    }
+    if (state) state.settings = result.settings;
+    filesDirDirty = false;
+    toast(value ? `Принятые файлы: ${value}` : 'Папка по умолчанию — Загрузки\\Nurofen');
+    await poll();
+    renderFiles();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('fileDirAuto').addEventListener('click', async () => {
+  const button = $('fileDirAuto');
+  button.disabled = true;
+  try {
+    const result = await api('/api/settings', { ...(state?.settings || {}), filesDir: '' });
+    if (!result?.ok) {
+      toast(result?.error || 'Не удалось вернуть папку по умолчанию');
+      return;
+    }
+    if (state) state.settings = result.settings;
+    filesDirDirty = false;
+    $('fileDirPath').value = '';
+    toast('Принятые файлы сохраняются в Загрузки\\Nurofen');
+    await poll();
+    renderFiles();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+/* --------------------------------------------------------------- friend list */
+
+async function onFriendAction(event) {
+  const file = event.target.closest('[data-friend-file]');
+  if (file) {
+    openTool('files', { net: file.dataset.friendNet || '', peer: file.dataset.friendFile || '' });
+    return;
+  }
+  const invite = event.target.closest('[data-friend-invite]');
+  if (invite) {
+    invite.disabled = true;
+    try {
+      const result = await api('/api/invite/link', { id: invite.dataset.friendInvite });
+      if (!result?.ok) {
+        toast(result?.error || 'Не удалось создать ссылку');
+        return;
+      }
+      if (await copy(result.url)) toast('Ссылка-приглашение скопирована · внутри пароль сети');
+      else toast(result.url);
+    } catch {
+      toast('Не удалось создать ссылку');
+    } finally {
+      invite.disabled = false;
+    }
+    return;
+  }
+  const add = event.target.closest('[data-friend-add]');
+  const remove = event.target.closest('[data-friend-remove]');
+  const button = add || remove;
+  if (!button || button.disabled) return;
+  const peerId = add ? add.dataset.friendAdd : remove.dataset.friendRemove;
+  button.disabled = true;
+  try {
+    const result = await api(add ? '/api/friends/add' : '/api/friends/remove', { peerId });
+    if (!result?.ok) toast(result?.error || 'Не удалось изменить список друзей');
+    else toast(add ? 'Друг добавлен' : 'Убран из друзей');
+    await poll();
+    renderFriends();
+  } catch {
+    toast('Не удалось связаться с клиентом');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$('friendPeers').addEventListener('click', onFriendAction);
+$('friendList').addEventListener('click', onFriendAction);
 
 $('directToggle').addEventListener('change', async (event) => {
   const net = activeNetwork();
@@ -1104,6 +1634,8 @@ document.querySelectorAll('[data-action]').forEach((button) => {
     else if (action === 'settings') openTool('settings');
     else if (action === 'about') openTool('about');
     else if (action === 'play') openTool('play');
+    else if (action === 'files') openTool('files');
+    else if (action === 'friends') openTool('friends');
     else if (action === 'leave') leaveNetwork();
     else if (action === 'quit') api('/api/quit');
   });

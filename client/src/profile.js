@@ -13,7 +13,9 @@ const DEFAULT = {
     notifyWorlds: true,
     minecraftDir: '',
     minecraftServerDir: '',
+    filesDir: '',
   },
+  friends: [],
   networks: [],
 };
 
@@ -97,6 +99,17 @@ function normalize(profile) {
   profile.settings.compactPeers = version < 3 ? true : profile.settings.compactPeers !== false;
   profile.settings.autoConnect = profile.settings.autoConnect !== false;
   profile.settings.notifyWorlds = profile.settings.notifyWorlds !== false;
+  profile.settings.filesDir = String(profile.settings.filesDir || '').trim();
+  profile.friends = (Array.isArray(profile.friends) ? profile.friends : [])
+    .filter((item) => item && typeof item === 'object' && item.peerId)
+    .map((item) => ({
+      peerId: String(item.peerId),
+      name: String(item.name || '').slice(0, 32),
+      ip: String(item.ip || ''),
+      networkId: item.networkId ? String(item.networkId) : '',
+      networkName: String(item.networkName || '').slice(0, 32),
+      addedAt: item.addedAt || new Date().toISOString(),
+    }));
   profile.version = DEFAULT.version;
   for (const item of profile.networks) {
     if (!item.id) item.id = randomUUID();

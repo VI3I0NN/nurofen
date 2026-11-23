@@ -5,6 +5,10 @@ import fs from 'node:fs';
 export const APP_NAME = 'Nurofen';
 export const UI_PORT = 39391;
 export const HELPER_PORT = 39394;
+// File transfer listens on the tunnel, not on loopback. The firewall already
+// allows TCP from 10.66.0.0/16, so no extra rule is needed. A short list keeps
+// the client working if one of the ports is taken by another program.
+export const FILE_PORTS = [39395, 39396, 39397];
 export const TUNNEL_NAME = 'nurofen';
 
 export const dataDir = () => {

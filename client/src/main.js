@@ -24,6 +24,17 @@ import { keepStatuses, splitAddress, statusFor } from './mcstatus.js';
 import { activeGameDir, findServerDir, resolveGameDir, runningGameDir, scanGameDirs } from './minecraftPaths.js';
 import { readServers, upsertServer } from './servers.js';
 import { launchGame, playInfo } from './play.js';
+import {
+  acceptTransfer,
+  cancelTransfer,
+  declineTransfer,
+  dismissTransfer,
+  filesSnapshot,
+  initFiles,
+  startSend,
+  stopFiles,
+  transferPath,
+} from './files.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(HERE, '..');
@@ -155,14 +166,14 @@ function notifyDesktop(title, body) {
  * Folder picker for the plain-Node run (no Electron shell). PowerShell writes
  * the chosen path to a UTF-8 file so Cyrillic paths survive the console codepage.
  */
-function pickDirectoryFallback() {
+function pickDirectoryFallback(title = 'Папка Minecraft') {
   return new Promise((resolve) => {
     const outFile = path.join(os.tmpdir(), `nurofen-pick-${randomUUID()}.txt`);
     const quoted = outFile.replace(/'/g, "''");
     const script = [
       'Add-Type -AssemblyName System.Windows.Forms',
       '$d = New-Object System.Windows.Forms.FolderBrowserDialog',
-      '$d.Description = "Папка Minecraft"',
+      `$d.Description = "${String(title).replace(/"/g, '')}"`,
       '$d.ShowNewFolderButton = $false',
       `if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [IO.File]::WriteAllText('${quoted}', $d.SelectedPath, [Text.Encoding]::UTF8) }`,
     ].join('; ');
@@ -182,15 +193,15 @@ function pickDirectoryFallback() {
 }
 
 /** The same picker for a launcher executable, used without the Electron shell. */
-function pickFileFallback() {
+function pickFileFallback({ title = 'Исполняемый файл лаунчера', filter = 'Программы (*.exe)|*.exe' } = {}) {
   return new Promise((resolve) => {
     const outFile = path.join(os.tmpdir(), `nurofen-exe-${randomUUID()}.txt`);
     const quoted = outFile.replace(/'/g, "''");
     const script = [
       'Add-Type -AssemblyName System.Windows.Forms',
       '$d = New-Object System.Windows.Forms.OpenFileDialog',
-      '$d.Title = "Исполняемый файл лаунчера"',
-      '$d.Filter = "Программы (*.exe)|*.exe"',
+      `$d.Title = "${String(title).replace(/"/g, '')}"`,
+      `$d.Filter = "${String(filter).replace(/"/g, '')}"`,
       `if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [IO.File]::WriteAllText('${quoted}', $d.FileName, [Text.Encoding]::UTF8) }`,
     ].join('; ');
     const child = spawn('powershell.exe', ['-NoProfile', '-STA', '-Command', script], { windowsHide: true });
@@ -206,6 +217,10 @@ function pickFileFallback() {
       resolve(picked);
     });
   });
+}
+
+function pickAnyFileFallback() {
+  return pickFileFallback({ title: 'Файл для отправки', filter: 'Все файлы (*.*)|*.*' });
 }
 
 function joined(member) {
@@ -250,6 +265,72 @@ function syncRuntime(p = profile()) {
     if (!p.networks.some((member) => member.id === id)) runtime.delete(id);
   }
   return p;
+}
+
+/** Networks in the shape the file module needs: status, self and peers. */
+function fileNetworks() {
+  const p = loadProfile();
+  return p.networks.map((member) => {
+    const state = runtimeFor(member.id);
+    return {
+      id: member.id,
+      status: state.status,
+      network: member.network,
+      self: member.self,
+      peers: state.peers || [],
+    };
+  });
+}
+
+function fileSelf(networkId) {
+  const member = memberById(networkId);
+  return {
+    name: member?.self?.name || loadProfile().deviceName || 'Устройство',
+    ip: member?.self?.ip || '',
+  };
+}
+
+function findPeerAnywhere(peerId) {
+  const wanted = String(peerId || '');
+  if (!wanted) return null;
+  for (const net of fileNetworks()) {
+    if (net.status !== 'connected') continue;
+    const peer = (net.peers || []).find((item) => item.id === wanted && !item.self);
+    if (peer) return { peer, networkId: net.id, networkName: net.network?.name || '' };
+  }
+  return null;
+}
+
+/**
+ * Friends are stored by the server-side peer id, which is stable while the
+ * membership exists. The view adds live data from every connected network, so
+ * a friend is shown as online wherever they currently are.
+ */
+function friendView(p = loadProfile()) {
+  const found = new Map();
+  for (const net of fileNetworks()) {
+    if (net.status !== 'connected') continue;
+    for (const peer of net.peers || []) {
+      if (peer.self) continue;
+      const current = found.get(peer.id);
+      if (!current || (!current.peer.online && peer.online)) {
+        found.set(peer.id, { peer, networkId: net.id, networkName: net.network?.name || '' });
+      }
+    }
+  }
+  return (p.friends || []).map((friend) => {
+    const live = found.get(friend.peerId);
+    return {
+      peerId: friend.peerId,
+      name: live?.peer.name || friend.name || 'Друг',
+      ip: live?.peer.ip || friend.ip || '',
+      networkName: live?.networkName || friend.networkName || '',
+      networkId: live?.networkId || friend.networkId || '',
+      inNetwork: Boolean(live),
+      online: Boolean(live?.peer.online),
+      addedAt: friend.addedAt,
+    };
+  });
 }
 
 function hubIp(member) {
@@ -1330,6 +1411,8 @@ function snapshot() {
     minecraftInstalled: minecraft.installed,
     minecraftStatus,
     play: playInfo(p.settings || {}),
+    friends: friendView(p),
+    files: filesSnapshot(p),
     invite: ui.pendingInvite,
     activeId: p.activeId,
     networks,
@@ -1343,6 +1426,7 @@ function snapshot() {
       playExe: '',
       playLauncher: '',
       playInstance: '',
+      filesDir: '',
     },
     helper: ui.helper,
     helperVersion: ui.helperVersion || '',
@@ -1411,6 +1495,9 @@ const server = http.createServer(async (req, res) => {
             playInstance: body.playInstance === undefined
               ? String(p.settings?.playInstance || '')
               : String(body.playInstance || ''),
+            filesDir: body.filesDir === undefined
+              ? String(p.settings?.filesDir || '')
+              : String(body.filesDir || '').trim(),
           };
           saveProfile(p);
           json(res, 200, { ok: true, settings: p.settings });
@@ -1462,9 +1549,12 @@ const server = http.createServer(async (req, res) => {
           return;
         case '/api/invite/link': {
           const p = loadProfile();
-          const member = p.networks.find((item) => item.id === (body.id || p.activeId)) || p.networks[0];
+          const wanted = body.id || p.activeId;
+          const member = wanted
+            ? p.networks.find((item) => item.id === wanted)
+            : p.networks[0];
           if (!member) {
-            json(res, 200, { ok: false, error: 'Сначала подключитесь к сети.' });
+            json(res, 200, { ok: false, error: wanted ? 'Сеть не найдена — подключитесь к ней заново.' : 'Сначала подключитесь к сети.' });
             return;
           }
           if (!member.password) {
@@ -1492,6 +1582,7 @@ const server = http.createServer(async (req, res) => {
           json(res, 200, { ok: true });
           return;
         case '/api/quit':
+          stopFiles();
           await disconnectAll();
           json(res, 200, { ok: true });
           if (ELECTRON) setTimeout(() => ELECTRON.quit?.(), 150);
@@ -1609,6 +1700,89 @@ const server = http.createServer(async (req, res) => {
             ? await ELECTRON.pickFile()
             : await pickFileFallback();
           json(res, 200, picked ? { ok: true, path: picked } : { ok: false, cancelled: true });
+          return;
+        }
+        case '/api/files/send': {
+          const transfer = startSend({
+            profile: loadProfile(),
+            networkId: String(body.networkId || ''),
+            peerId: String(body.peerId || ''),
+            filePath: String(body.path || ''),
+          });
+          pushLog('info', `передача файла «${transfer.name}» → ${transfer.peerName}`);
+          json(res, 200, { ok: true, transfer });
+          return;
+        }
+        case '/api/files/pick-dir': {
+          const picked = ELECTRON?.pickDirectory
+            ? await ELECTRON.pickDirectory('Папка для принятых файлов')
+            : await pickDirectoryFallback('Папка для принятых файлов');
+          json(res, 200, picked ? { ok: true, path: picked } : { ok: false, cancelled: true });
+          return;
+        }
+        case '/api/files/pick': {
+          const picked = ELECTRON?.pickDocument
+            ? await ELECTRON.pickDocument()
+            : await pickAnyFileFallback();
+          if (!picked) {
+            json(res, 200, { ok: false, cancelled: true });
+            return;
+          }
+          const stat = fs.statSync(picked);
+          json(res, 200, {
+            ok: true,
+            path: picked,
+            name: path.basename(picked),
+            size: stat.isFile() ? stat.size : 0,
+          });
+          return;
+        }
+        case '/api/files/accept':
+          json(res, 200, acceptTransfer(body.id));
+          return;
+        case '/api/files/decline':
+          json(res, 200, declineTransfer(body.id));
+          return;
+        case '/api/files/cancel':
+          json(res, 200, cancelTransfer(body.id));
+          return;
+        case '/api/files/dismiss':
+          json(res, 200, dismissTransfer(body.id));
+          return;
+        case '/api/files/reveal': {
+          const target = transferPath(body.id);
+          if (!target) throw new Error('Файл ещё не сохранён.');
+          if (ELECTRON?.reveal) ELECTRON.reveal(target);
+          else spawn('explorer.exe', ['/select,', target], { detached: true, stdio: 'ignore' }).unref();
+          json(res, 200, { ok: true });
+          return;
+        }
+        case '/api/friends/add': {
+          const peerId = String(body.peerId || '').trim();
+          const found = findPeerAnywhere(peerId);
+          if (!found) throw new Error('Участник не найден в подключённых сетях.');
+          const p = loadProfile();
+          const existing = p.friends.find((item) => item.peerId === peerId);
+          const entry = {
+            peerId,
+            name: found.peer.name || 'Друг',
+            ip: found.peer.ip || '',
+            networkId: found.networkId,
+            networkName: found.networkName,
+            addedAt: existing?.addedAt || new Date().toISOString(),
+          };
+          if (existing) Object.assign(existing, entry);
+          else p.friends.push(entry);
+          saveProfile(p);
+          json(res, 200, { ok: true });
+          return;
+        }
+        case '/api/friends/remove': {
+          const peerId = String(body.peerId || '').trim();
+          const p = loadProfile();
+          p.friends = p.friends.filter((item) => item.peerId !== peerId);
+          saveProfile(p);
+          json(res, 200, { ok: true });
           return;
         }
         case '/api/update/check': {
@@ -1861,6 +2035,15 @@ async function main() {
   const p = syncRuntime();
   log(`[app] starting, networks=${p.networks.length} profile=${dataDir()}`);
 
+  initFiles({
+    getProfile: () => loadProfile(),
+    getNetworks: fileNetworks,
+    getSelf: fileSelf,
+    showWindow: () => { showWindow().catch(() => {}); },
+    notify: notifyDesktop,
+    log: (level, message) => pushLog(level, message),
+  });
+
   const info = await helperInfo();
   ui.helper = Boolean(info);
   ui.helperVersion = info?.version || '';
@@ -1912,6 +2095,7 @@ async function main() {
   }, 6 * 60 * 60 * 1000);
 
   process.on('SIGINT', () => {
+    stopFiles();
     disconnectAll().finally(() => process.exit(0));
   });
 }
