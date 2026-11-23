@@ -70,6 +70,12 @@ Name: "{commonstartup}\Nurofen"; Filename: "{app}\electron\electron.exe"; Parame
   WorkingDir: "{app}"; IconFilename: "{app}\assets\nurofen.ico"; Comment: "Nurofen — автозапуск в трее"; \
   Check: ElectronExists
 
+[Registry]
+Root: HKCU; Subkey: "Software\Classes\nurofen"; ValueType: string; ValueName: ""; ValueData: "URL:Nurofen invite link"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\nurofen"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\nurofen\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\assets\nurofen.ico"
+Root: HKCU; Subkey: "Software\Classes\nurofen\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\electron\electron.exe"" ""{app}\electron-app"" ""%1"""
+
 [Run]
 Filename: "{app}\electron\electron.exe"; Parameters: """{app}\electron-app"""; WorkingDir: "{app}"; \
   Description: "Запустить Nurofen"; Flags: nowait postinstall skipifsilent runasoriginaluser; \

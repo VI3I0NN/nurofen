@@ -7,5 +7,5 @@ const ids = [...js.matchAll(/\$\('([^']+)'\)/g)].map((m) => m[1]);
 const missing = [...new Set(ids)].filter((id) => !html.includes(`id="${id}"`));
 console.log('missing ids:', missing.length ? missing.join(', ') : 'none');
 const actions = [...new Set([...html.matchAll(/data-action="([^"]+)"/g)].map((m) => m[1]))];
-const known = ['update', 'diagnostics', 'settings', 'quit', 'add', 'toggle', 'leave', 'about', 'nickname'];
+const known = ['update', 'diagnostics', 'settings', 'quit', 'add', 'invite', 'toggle', 'leave', 'about', 'nickname'];
 console.log('unknown actions:', actions.filter((a) => !known.includes(a)).join(', ') || 'none');

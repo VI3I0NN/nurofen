@@ -20,6 +20,7 @@ import { defaultServerUrl, heartbeat, join, leave, normalizeServer, state as get
 import { helperAlive, helperInfo, ensureFirewall, ping, restartHelper, syncDirectPeers, tunnelDown, tunnelStatus, tunnelUp } from './tunnel.js';
 import { startHelper } from './helper.js';
 import { detectLanPort, serverInfo } from './minecraft.js';
+import { keepStatuses, splitAddress, statusFor } from './mcstatus.js';
 import { activeGameDir, findServerDir, resolveGameDir, runningGameDir, scanGameDirs } from './minecraftPaths.js';
 import { readServers, upsertServer } from './servers.js';
 
@@ -35,7 +36,8 @@ const ELECTRON = globalThis.__nurofenElectron || null;
 
 function readVersion() {
   try {
-    return JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'package.json'), 'utf8')).version || '0.0.0';
+    const text = fs.readFileSync(path.join(APP_ROOT, 'package.json'), 'utf8').replace(/^\uFEFF/, '');
+    return JSON.parse(text).version || '0.0.0';
   } catch {
     return '0.0.0';
   }
@@ -69,6 +71,7 @@ const ui = {
   minecraft: null,
   server: null,
   pendingServer: null,
+  pendingInvite: null,
   logTail: [],
 };
 
@@ -120,6 +123,31 @@ function minecraftInfo(p = loadProfile()) {
       instance: item.instance || '',
     })),
   };
+}
+
+/** World addresses that are worth asking for a status right now. */
+function worldAddresses(p = loadProfile()) {
+  const addresses = new Set();
+  const port = sharedLanPort();
+  for (const member of p.networks) {
+    const state = runtimeFor(member.id);
+    if (state.status !== 'connected' || !member.self?.ip) continue;
+    if (port) addresses.add(`${member.self.ip}:${port}`);
+    for (const peer of state.peers || []) {
+      if (peer.self || !peer.online || !peer.lanPort) continue;
+      addresses.add(`${peer.ip}:${peer.lanPort}`);
+    }
+  }
+  return addresses;
+}
+
+/** A desktop notification when the shell supports it; the UI toast is separate. */
+function notifyDesktop(title, body) {
+  try {
+    if (ELECTRON?.notify) ELECTRON.notify({ title, body });
+  } catch {
+    // notifications are optional
+  }
 }
 
 /**
@@ -479,9 +507,39 @@ async function refreshPeers(member) {
         lanPort: sharedLanPort(),
       })
       : await getState(member);
-    if (data?.peers) state.peers = data.peers;
+    if (data?.peers) {
+      state.peers = data.peers;
+      trackPeerWorlds(member, data.peers);
+    }
   } catch (error) {
     if (state.status === 'connected') pushLog('warn', `«${member.network.name}»: связь с сервером — ${error.message}`);
+  }
+}
+
+/**
+ * A world that appears after the first poll is news: the player was waiting
+ * for a friend to open it. The first poll only sets the baseline, so worlds
+ * that were already open do not produce a burst of notifications on startup.
+ */
+function trackPeerWorlds(member, peers) {
+  const state = runtimeFor(member.id);
+  const next = new Set();
+  const fresh = [];
+  for (const peer of peers) {
+    if (peer.self || !peer.online || !peer.lanPort) continue;
+    const address = `${peer.ip}:${peer.lanPort}`;
+    next.add(address);
+    if (state.worlds && !state.worlds.has(address)) {
+      fresh.push({ name: peer.name || peer.ip, address });
+    }
+  }
+  const first = !state.worlds;
+  state.worlds = next;
+  if (first || !fresh.length) return;
+  if (loadProfile().settings?.notifyWorlds === false) return;
+  for (const item of fresh) {
+    pushLog('ok', `${item.name} открыл мир — ${item.address}`);
+    notifyDesktop(`${item.name} открыл мир`, `${item.address} — нажмите «Добавить» в Nurofen`);
   }
 }
 
@@ -686,6 +744,7 @@ let ticking = false;
  * longer has it; that way the next launch always shows the server.
  */
 const PENDING_SERVER_MS = 10 * 60 * 1000;
+const INVITE_TTL = 10 * 60 * 1000;
 
 function flushPendingServer() {
   const pending = ui.pendingServer;
@@ -781,6 +840,7 @@ async function addNetwork({ mode, name, password, deviceName }) {
     );
     if (known) {
       existingProfile.activeId = known.id;
+      if (!known.password) known.password = String(password);
       saveProfile(existingProfile);
       return { ok: true, id: known.id, existing: true };
     }
@@ -832,6 +892,9 @@ async function addNetwork({ mode, name, password, deviceName }) {
     keepalive: response.keepalive || 25,
     privateKey: keys.privateKey,
     publicKey: keys.publicKey,
+    // Kept to build the invite link. The profile already holds the private
+    // key and the server token, so the network password is not new exposure.
+    password: String(password),
     lastPort: null,
     interface: iface,
     listenPort: 57220 + Math.max(0, ifaceIndex),
@@ -1195,6 +1258,16 @@ function restartApp() {
 function snapshot() {
   const p = syncRuntime();
   const minecraft = minecraftInfo(p);
+  if (ui.pendingInvite && Date.now() - ui.pendingInvite.at > INVITE_TTL) ui.pendingInvite = null;
+  const addresses = worldAddresses(p);
+  const minecraftStatus = {};
+  for (const address of addresses) {
+    const target = splitAddress(address);
+    if (!target) continue;
+    const value = statusFor(target.host, target.port);
+    if (value) minecraftStatus[address] = value;
+  }
+  keepStatuses(addresses);
   const networks = p.networks.map((member) => {
     const state = runtimeFor(member.id);
     return {
@@ -1223,10 +1296,12 @@ function snapshot() {
     minecraft: { port: ui.minecraft?.port ?? null, at: ui.minecraft?.at ?? null, ...minecraft },
     minecraftServer: ui.server || { configured: configuredServerDir(p), dir: '', port: null, running: false },
     minecraftInstalled: minecraft.installed,
+    minecraftStatus,
+    invite: ui.pendingInvite,
     activeId: p.activeId,
     networks,
     update: { ...update },
-    settings: p.settings || { compactPeers: true, autoConnect: true, minecraftDir: '', minecraftServerDir: '' },
+    settings: p.settings || { compactPeers: true, autoConnect: true, notifyWorlds: true, minecraftDir: '', minecraftServerDir: '' },
     helper: ui.helper,
     helperVersion: ui.helperVersion || '',
     helperStale: Boolean(ui.helper && compareVersions(ui.helperVersion, APP_VERSION) < 0),
@@ -1278,6 +1353,7 @@ const server = http.createServer(async (req, res) => {
           p.settings = {
             compactPeers: body.compactPeers !== false,
             autoConnect: body.autoConnect !== false,
+            notifyWorlds: body.notifyWorlds !== false,
             minecraftDir: body.minecraftDir === undefined
               ? configuredMinecraftDir(p)
               : String(body.minecraftDir || '').trim(),
@@ -1332,6 +1408,37 @@ const server = http.createServer(async (req, res) => {
         }
         case '/api/leave':
           json(res, 200, await forgetNetwork(body.id));
+          return;
+        case '/api/invite/link': {
+          const p = loadProfile();
+          const member = p.networks.find((item) => item.id === (body.id || p.activeId)) || p.networks[0];
+          if (!member) {
+            json(res, 200, { ok: false, error: 'Сначала подключитесь к сети.' });
+            return;
+          }
+          if (!member.password) {
+            json(res, 200, { ok: false, error: 'Пароль этой сети не сохранён — подключитесь к ней заново.' });
+            return;
+          }
+          const url = `nurofen://join?name=${encodeURIComponent(member.network.name)}&password=${encodeURIComponent(member.password)}`;
+          json(res, 200, { ok: true, url, name: member.network.name });
+          return;
+        }
+        case '/api/invite': {
+          const name = String(body.name || '').trim().slice(0, 32);
+          const password = String(body.password || '').slice(0, 64);
+          if (!name || password.length < 4) {
+            json(res, 400, { ok: false });
+            return;
+          }
+          ui.pendingInvite = { name, password, at: Date.now() };
+          showWindow().catch(() => {});
+          json(res, 200, { ok: true });
+          return;
+        }
+        case '/api/invite/clear':
+          ui.pendingInvite = null;
+          json(res, 200, { ok: true });
           return;
         case '/api/quit':
           await disconnectAll();

@@ -34,6 +34,7 @@
         <div class="dropdown">
           <button type="button" data-action="nickname">Изменить ник…</button>
           <button type="button" data-action="add">Добавить сеть…</button>
+          <button type="button" data-action="invite">Пригласить в сеть…</button>
           <button type="button" data-action="toggle" id="menuToggle">Включить</button>
           <button type="button" data-action="leave" id="menuLeave" class="danger">Выйти из сети…</button>
         </div>
@@ -140,6 +141,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
         </button>
       </div>
+      <p class="mc-status" id="mcStatus" hidden></p>
       <p class="mc-hint" id="mcHint">Откройте мир и нажмите «Открыть для сети».</p>
     </section>
 
@@ -218,6 +220,10 @@
             <label class="check-row">
               <input type="checkbox" id="setDirect">
               <span><b>Прямые соединения</b><small>Бета. Ускоряет обмен между участниками, если включено у обоих.</small></span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="setNotify">
+              <span><b>Уведомлять об открытых мирах</b><small>Тост в окне и уведомление в трее, когда участник открыл мир.</small></span>
             </label>
           </section>
 

@@ -37,6 +37,10 @@ let polling = false;
 let modalKind = null;
 let toastTimer = null;
 let peersMarkup = null;
+// Worlds seen on the previous poll, per network. A new address means a friend
+// just opened one, which is worth a toast even when the window is in the
+// background. The first poll of a network only sets the baseline.
+const knownWorlds = new Map();
 // The settings window polls every couple of seconds; never overwrite a path
 // the user is typing or has just picked but not saved yet.
 let mcPathDirty = false;
@@ -223,6 +227,11 @@ function renderDirect() {
   else hint.textContent = 'Нет подходящих участников';
 }
 
+/** The cached Server List Ping answer for one world address, if any. */
+function worldStatus(address) {
+  return address ? state?.minecraftStatus?.[address] || null : null;
+}
+
 function renderMinecraft() {
   const panel = $('mcPanel');
   const installed = state?.minecraftInstalled === true;
@@ -236,6 +245,10 @@ function renderMinecraft() {
   const lanOpen = installed && Boolean(mc.port) && connected;
   const sharedPort = serverReady ? server.port : (lanOpen ? mc.port : null);
   const open = Boolean(sharedPort) && connected;
+  const statusLine = $('mcStatus');
+  statusLine.hidden = true;
+  statusLine.textContent = '';
+  statusLine.className = 'mc-status';
 
   if (open) {
     $('mcState').textContent = serverReady ? 'сервер запущен' : 'мир открыт';
@@ -245,6 +258,27 @@ function renderMinecraft() {
     const address = `${net.self.ip}:${sharedPort}`;
     $('mcAddr').textContent = address;
     $('mcAddr').title = address;
+
+    // The game answers its own Server List Ping, so this line is the same
+    // information a player sees in the multiplayer list.
+    const status = worldStatus(address);
+    if (status?.online) {
+      const players = status.players || {};
+      const meta = [];
+      if (players.max) meta.push(`${players.online} из ${players.max}`);
+      else if (players.online) meta.push(`${players.online} игроков`);
+      if (status.version) meta.push(status.version);
+      if (status.latency != null) meta.push(`${status.latency} мс`);
+      statusLine.hidden = false;
+      statusLine.classList.add('on');
+      statusLine.innerHTML = `${status.motd ? `<span class="mc-motd">${escapeHtml(status.motd)}</span>` : ''}<span class="mc-meta">${escapeHtml(meta.join(' · '))}</span>`;
+      statusLine.title = [status.motd, meta.join(' · ')].filter(Boolean).join('\n');
+    } else if (status && !status.online) {
+      statusLine.hidden = false;
+      statusLine.classList.add('bad');
+      statusLine.textContent = 'Мир не отвечает на запросы';
+      statusLine.title = status.error || '';
+    }
     return;
   }
 
@@ -318,6 +352,17 @@ function renderPeers() {
       const world = tunnelUp && online && !peer.self && state.minecraftInstalled && peer.lanPort
         ? `${peer.ip}:${peer.lanPort}`
         : null;
+      const status = worldStatus(world);
+      const players = status?.online ? status.players || {} : null;
+      const playersLabel = players
+        ? (players.max ? `${players.online}/${players.max}` : `${players.online}`)
+        : '';
+      const playersTitle = players
+        ? `${players.online}${players.max ? ` из ${players.max}` : ''} игроков${status.version ? ` · ${status.version}` : ''}${status.motd ? `\n${status.motd}` : ''}`
+        : '';
+      const playersChip = playersLabel
+        ? `<span class="mc-players" title="${escapeHtml(playersTitle)}">${escapeHtml(playersLabel)}</span>`
+        : '';
       const playButton = world
         ? `<button type="button" class="mc-play" data-play="${escapeHtml(world)}" data-name="${escapeHtml(peer.name)}" title="Добавить сервер ${escapeHtml(world)} в «Сетевую игру»">Добавить</button>`
         : '';
@@ -326,7 +371,7 @@ function renderPeers() {
           <span class="avatar ${peerTone(peer.name)}">${escapeHtml(initials(peer.name))}</span>
           <div class="peer-main">
             <span class="name"><span class="name-text">${escapeHtml(peer.name)}</span>${peer.self ? '<span class="tag-self">вы</span>' : ''}</span>
-            <span class="peer-sub"><span class="ip">${escapeHtml(peer.ip)}</span>${playButton}</span>
+            <span class="peer-sub"><span class="ip">${escapeHtml(peer.ip)}</span>${playersChip}${playButton}</span>
           </div>
           <span class="peer-connection"><span class="presence ${online ? 'online' : ''}">${online ? 'В сети' : 'Не в сети'}</span><span class="ping ${pingClass}" title="${escapeHtml(pingTitle)}">${pingText}</span></span>
           <button type="button" class="copy" data-copy="${escapeHtml(peer.ip)}" title="Скопировать адрес"
@@ -437,6 +482,7 @@ function renderSettings() {
   const settings = state.settings || {};
   $('setCompact').checked = settings.compactPeers === true;
   $('setAutoConnect').checked = settings.autoConnect !== false;
+  $('setNotify').checked = settings.notifyWorlds !== false;
   const net = activeNetwork();
   $('setDirect').checked = Boolean(net?.direct);
   $('setDirect').disabled = !net;
@@ -606,6 +652,81 @@ function closeJoin() {
   render();
 }
 
+async function inviteToNetwork() {
+  const net = activeNetwork();
+  if (!net) {
+    toast('Сначала подключитесь к сети');
+    return;
+  }
+  const result = await api('/api/invite/link', { id: net.id }).catch(() => null);
+  if (!result?.ok) {
+    // Profiles created before this feature did not keep the network password.
+    // Re-entering it once is enough: the membership saves it on connect.
+    if (String(result?.error || '').includes('Пароль')) {
+      joinOpen = true;
+      joinMode = 'join';
+      $('joinError').hidden = true;
+      $('networkName').value = net.network?.name || '';
+      $('networkPassword').value = '';
+      updateJoinMode();
+      render();
+      setTimeout(() => $('networkPassword').focus(), 60);
+      toast('Введите пароль сети заново — он сохранится для ссылки');
+      return;
+    }
+    toast(result?.error || 'Не удалось создать ссылку');
+    return;
+  }
+  if (await copy(result.url)) toast('Ссылка-приглашение скопирована · внутри пароль сети');
+  else toast(result.url);
+}
+
+/**
+ * The shell passes `nurofen://join?...` to the backend, which keeps it until
+ * the UI is ready. Filling the form is safer than joining silently: the user
+ * still sees which network the link points to.
+ */
+function acceptInvite() {
+  const invite = state?.invite;
+  if (!invite) return;
+  api('/api/invite/clear', {}).catch(() => {});
+  joinOpen = true;
+  joinMode = 'join';
+  $('joinError').hidden = true;
+  $('networkName').value = invite.name || '';
+  $('networkPassword').value = invite.password || '';
+  updateJoinMode();
+  setTimeout(() => $('joinBtn').focus(), 60);
+  toast(`Приглашение в «${invite.name}» — проверьте данные`);
+}
+
+/** Toast once per newly opened world; the first poll is the baseline. */
+function announceWorlds() {
+  const connected = new Set();
+  const notify = state?.settings?.notifyWorlds !== false;
+  for (const net of networks()) {
+    if (net.status !== 'connected') continue;
+    connected.add(net.id);
+    const next = new Map();
+    for (const peer of net.peers || []) {
+      if (peer.self || !peer.online || !peer.lanPort) continue;
+      next.set(`${peer.ip}:${peer.lanPort}`, peer.name || peer.ip);
+    }
+    const before = knownWorlds.get(net.id);
+    if (before && notify) {
+      for (const [address, name] of next) {
+        if (!before.has(address)) toast(`${name} открыл мир — ${address}`);
+      }
+    }
+    knownWorlds.set(net.id, new Set(next.keys()));
+  }
+  // A disconnected network starts from a fresh baseline on its next connect,
+  // so reconnecting does not replay worlds that were already open.
+  for (const id of knownWorlds.keys()) {
+    if (!connected.has(id)) knownWorlds.delete(id);
+  }
+}
+
 function updateJoinMode() {
   document.querySelectorAll('.mode-option').forEach((button) => {
     button.classList.toggle('active', button.dataset.mode === joinMode);
@@ -714,6 +835,7 @@ document.querySelectorAll('[data-action]').forEach((button) => {
     closeMenus();
     if (action === 'toggle') toggleConnection();
     else if (action === 'add') openJoin();
+    else if (action === 'invite') inviteToNetwork();
     else if (action === 'nickname') openTool('nickname');
     else if (action === 'update') openTool('update');
     else if (action === 'diagnostics') openTool('diagnostics');
@@ -801,6 +923,7 @@ $('upForceHelper').addEventListener('click', () => forceHelperUpdate($('upForceH
 
 $('setCompact').addEventListener('change', (event) => saveSettings({ compactPeers: event.target.checked }));
 $('setAutoConnect').addEventListener('change', (event) => saveSettings({ autoConnect: event.target.checked }));
+$('setNotify').addEventListener('change', (event) => saveSettings({ notifyWorlds: event.target.checked }));
 $('setDirect').addEventListener('change', (event) => saveDirect(event.target.checked));
 $('setNickname').addEventListener('click', () => openTool('nickname'));
 
@@ -958,6 +1081,12 @@ async function poll() {
   try {
     const res = await fetch('/api/status', { cache: 'no-store' });
     state = await res.json();
+    // Utility windows share the same page; only the main window may open the
+    // join form or raise toasts, otherwise an invite would be cleared there.
+    if (!TOOL_KIND) {
+      acceptInvite();
+      announceWorlds();
+    }
     const list = networks();
     if (!activeId || !list.some((item) => item.id === activeId)) {
       activeId = state.activeId || list[0]?.id || null;

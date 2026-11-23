@@ -10,6 +10,7 @@ const DEFAULT = {
   settings: {
     compactPeers: true,
     autoConnect: true,
+    notifyWorlds: true,
     minecraftDir: '',
     minecraftServerDir: '',
   },
@@ -95,6 +96,7 @@ function normalize(profile) {
   // opt-out after the migration is preserved.
   profile.settings.compactPeers = version < 3 ? true : profile.settings.compactPeers !== false;
   profile.settings.autoConnect = profile.settings.autoConnect !== false;
+  profile.settings.notifyWorlds = profile.settings.notifyWorlds !== false;
   profile.version = DEFAULT.version;
   for (const item of profile.networks) {
     if (!item.id) item.id = randomUUID();

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage, session, dialog } from 'electron';
+import { app, BrowserWindow, Menu, Notification, Tray, nativeImage, session, dialog } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -328,12 +328,81 @@ function setupDownloadFolder() {
   });
 }
 
+/* ------------------------------------------------------- invite links */
+
+const PROTOCOL = 'nurofen';
+const STARTUP_INVITE = process.argv.find((arg) => String(arg).startsWith(`${PROTOCOL}://`)) || '';
+
+function parseInviteUrl(raw) {
+  try {
+    const url = new URL(String(raw));
+    if (url.protocol !== `${PROTOCOL}:`) return null;
+    const name = (url.searchParams.get('name') || '').trim().slice(0, 32);
+    const password = (url.searchParams.get('password') || '').slice(0, 64);
+    if (!name || password.length < 4) return null;
+    return { name, password };
+  } catch {
+    return null;
+  }
+}
+
+/** The backend may still be starting, so retry until it accepts the invite. */
+async function deliverInvite(raw) {
+  const invite = parseInviteUrl(raw);
+  if (!invite) return;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    try {
+      const res = await fetch(`${UI_URL}api/invite`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(invite),
+        signal: AbortSignal.timeout(1500),
+      });
+      if (res.ok) {
+        showWindow();
+        return;
+      }
+    } catch {
+      // the backend is not listening yet
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  log('could not deliver the invite link');
+}
+
+/**
+ * The installer registers the shortcut, but the registry entry can be lost
+ * after a manual move or an update. Re-registering on every start is cheap.
+ */
+function registerProtocol() {
+  try {
+    if (process.defaultApp && process.argv[1]) {
+      app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+    } else {
+      app.setAsDefaultProtocolClient(PROTOCOL);
+    }
+  } catch {
+    // an existing registry entry still works
+  }
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (event, argv) => {
+    const url = argv.find((arg) => String(arg).startsWith(`${PROTOCOL}://`));
+    if (url) {
+      log('second instance with an invite link');
+      deliverInvite(url);
+      return;
+    }
     log('second instance, focusing the window');
     showWindow();
+  });
+
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    deliverInvite(url);
   });
 
   globalThis.__nurofenElectron = {
@@ -345,6 +414,19 @@ if (!app.requestSingleInstanceLock()) {
     },
     quit() {
       quitApp();
+    },
+    notify({ title, body }) {
+      try {
+        const note = new Notification({
+          title: String(title || 'Nurofen'),
+          body: String(body || ''),
+          icon: ICON || undefined,
+        });
+        note.on('click', () => showWindow());
+        note.show();
+      } catch {
+        // notifications are optional
+      }
     },
     async pickDirectory() {
       const options = {
@@ -369,6 +451,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null);
+    registerProtocol();
     setupDownloadFolder();
     createTray();
 
@@ -378,6 +461,8 @@ if (!app.requestSingleInstanceLock()) {
     } catch (error) {
       log(`backend failed: ${error?.stack || error}`);
     }
+
+    if (STARTUP_INVITE) deliverInvite(STARTUP_INVITE);
 
     // Safety net: if the backend could not bind its port, still show something
     // useful instead of an invisible process.
