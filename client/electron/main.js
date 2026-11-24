@@ -30,6 +30,7 @@ const TOOL_WINDOWS = {
   play: { width: 640, height: 700, title: 'Nurofen Play' },
   files: { width: 460, height: 620, title: 'Передачи файлов' },
   friends: { width: 420, height: 580, title: 'Друзья' },
+  remote: { width: 720, height: 560, title: 'Удалённая помощь', resizable: true },
 };
 
 const ICON = [path.join(CLIENT, 'assets', 'nurofen.ico'), path.join(CLIENT, 'src', 'ui', 'nurofen.ico')]
@@ -65,12 +66,14 @@ app.on('web-contents-created', (event, contents) => {
     const kind = parsed.searchParams.get('tool');
     const tool = kind ? TOOL_WINDOWS[kind] : null;
     if (parsed.origin !== UI_ORIGIN || !tool) return { action: 'deny' };
+    const resizable = tool.resizable === true;
     return {
       action: 'allow',
       overrideBrowserWindowOptions: {
         width: tool.width,
         height: tool.height,
-        resizable: false,
+        ...(resizable ? { minWidth: 520, minHeight: 400 } : {}),
+        resizable,
         maximizable: false,
         fullscreenable: false,
         show: false,

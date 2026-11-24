@@ -35,6 +35,20 @@ import {
   stopFiles,
   transferPath,
 } from './files.js';
+import {
+  acceptRemote,
+  dismissRemote,
+  declineRemote,
+  initRemote,
+  remoteEnabled,
+  remoteInput,
+  remoteSnapshot,
+  remoteStream,
+  setRemoteControl,
+  startRemote,
+  stopRemote,
+  stopRemoteSession,
+} from './remote.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(HERE, '..');
@@ -1413,6 +1427,7 @@ function snapshot() {
     play: playInfo(p.settings || {}),
     friends: friendView(p),
     files: filesSnapshot(p),
+    remote: remoteSnapshot(p),
     invite: ui.pendingInvite,
     activeId: p.activeId,
     networks,
@@ -1427,6 +1442,7 @@ function snapshot() {
       playLauncher: '',
       playInstance: '',
       filesDir: '',
+      remoteAllowed: true,
     },
     helper: ui.helper,
     helperVersion: ui.helperVersion || '',
@@ -1470,6 +1486,10 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, snapshot());
     return;
   }
+  if (req.method === 'GET' && url.pathname === '/api/remote/stream') {
+    remoteStream(url.searchParams.get('id') || '', req, res);
+    return;
+  }
   if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
     const body = await readBody(req);
     try {
@@ -1498,6 +1518,9 @@ const server = http.createServer(async (req, res) => {
             filesDir: body.filesDir === undefined
               ? String(p.settings?.filesDir || '')
               : String(body.filesDir || '').trim(),
+            remoteAllowed: body.remoteAllowed === undefined
+              ? remoteEnabled(p)
+              : body.remoteAllowed !== false,
           };
           saveProfile(p);
           json(res, 200, { ok: true, settings: p.settings });
@@ -1582,6 +1605,7 @@ const server = http.createServer(async (req, res) => {
           json(res, 200, { ok: true });
           return;
         case '/api/quit':
+          stopRemote();
           stopFiles();
           await disconnectAll();
           json(res, 200, { ok: true });
@@ -1757,6 +1781,36 @@ const server = http.createServer(async (req, res) => {
           json(res, 200, { ok: true });
           return;
         }
+        case '/api/remote/start': {
+          const [networkId, peerId] = String(body.target || '').split('|');
+          const session = startRemote({
+            profile: loadProfile(),
+            networkId: String(body.networkId || networkId || ''),
+            peerId: String(body.peerId || peerId || ''),
+            control: body.control === true,
+          });
+          pushLog('info', `удалённая помощь: запрос к ${session.peerName}${session.controlRequested ? ' (с управлением)' : ''}`);
+          json(res, 200, { ok: true, session });
+          return;
+        }
+        case '/api/remote/accept':
+          json(res, 200, acceptRemote(body.id, body.control === true));
+          return;
+        case '/api/remote/decline':
+          json(res, 200, declineRemote(body.id));
+          return;
+        case '/api/remote/stop':
+          json(res, 200, stopRemoteSession(body.id));
+          return;
+        case '/api/remote/control':
+          json(res, 200, setRemoteControl(body.id, body.control === true));
+          return;
+        case '/api/remote/input':
+          json(res, 200, remoteInput(body.id, body.events));
+          return;
+        case '/api/remote/dismiss':
+          json(res, 200, dismissRemote(body.id));
+          return;
         case '/api/friends/add': {
           const peerId = String(body.peerId || '').trim();
           const found = findPeerAnywhere(peerId);
@@ -2044,6 +2098,15 @@ async function main() {
     log: (level, message) => pushLog(level, message),
   });
 
+  initRemote({
+    getProfile: () => loadProfile(),
+    getNetworks: fileNetworks,
+    getSelf: fileSelf,
+    showWindow: () => { showWindow().catch(() => {}); },
+    notify: notifyDesktop,
+    log: (level, message) => pushLog(level, message),
+  });
+
   const info = await helperInfo();
   ui.helper = Boolean(info);
   ui.helperVersion = info?.version || '';
@@ -2095,6 +2158,7 @@ async function main() {
   }, 6 * 60 * 60 * 1000);
 
   process.on('SIGINT', () => {
+    stopRemote();
     stopFiles();
     disconnectAll().finally(() => process.exit(0));
   });

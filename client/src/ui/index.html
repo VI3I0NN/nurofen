@@ -41,6 +41,7 @@
           <button type="button" data-action="invite">Пригласить в сеть…</button>
           <button type="button" data-action="friends">Друзья…</button>
           <button type="button" data-action="files">Передачи файлов…</button>
+          <button type="button" data-action="remote">Удалённая помощь…</button>
           <button type="button" data-action="toggle" id="menuToggle">Включить</button>
           <button type="button" data-action="leave" id="menuLeave" class="danger">Выйти из сети…</button>
         </div>
@@ -103,6 +104,19 @@
       <div class="net-tabs" id="netTabs" role="tablist" aria-label="Мои сети"></div>
       <button class="net-add" id="addNetBtn" type="button" title="Добавить сеть" aria-label="Добавить сеть">+</button>
     </div>
+
+    <section class="remote-banner" id="remoteBanner" hidden>
+      <span class="remote-banner-dot" aria-hidden="true"></span>
+      <div class="remote-banner-main">
+        <b id="remoteBannerTitle">Сеанс удалённой помощи</b>
+        <span id="remoteBannerMeta"></span>
+      </div>
+      <div class="remote-banner-actions">
+        <button type="button" class="ghost slim-ghost" id="remoteBannerControl" hidden></button>
+        <button type="button" class="ghost slim-ghost" id="remoteBannerOpen">Окно</button>
+        <button type="button" class="danger slim-ghost" id="remoteBannerStop">Остановить</button>
+      </div>
+    </section>
 
     <section class="hero">
       <button class="power-ring" id="powerBtn" type="button" aria-pressed="false" title="Включить или выключить сеть">
@@ -170,17 +184,12 @@
           <button type="button" class="peer-tool" id="filesBtn" title="Передачи файлов" aria-label="Передачи файлов">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5 12.5 19a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7.5-7.5"/></svg>
           </button>
+          <button type="button" class="peer-tool" id="remoteBtn" title="Удалённая помощь" aria-label="Удалённая помощь">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M8 10l2.5 2.5L16 7"/></svg>
+          </button>
         </div>
       </header>
       <div class="peer-list" id="peers"></div>
-    </section>
-
-    <section class="transfers" id="transfersPanel" hidden>
-      <header class="transfers-head">
-        <span class="transfers-title">Передачи</span>
-        <span class="transfers-count" id="transfersCount"></span>
-      </header>
-      <div class="transfers-list" id="transfersList"></div>
     </section>
   </main>
 
@@ -252,6 +261,22 @@
     </div>
   </div>
 
+  <div class="incoming" id="incomingRemote" hidden>
+    <div class="incoming-card remote-incoming-card" role="dialog" aria-modal="true" aria-labelledby="incomingRemoteTitle">
+      <span class="incoming-badge">Запрос удалённой помощи</span>
+      <h3 id="incomingRemoteTitle">—</h3>
+      <p class="incoming-meta" id="incomingRemoteMeta">—</p>
+      <label class="check-row remote-consent-control">
+        <input type="checkbox" id="incomingRemoteControl">
+        <span><b>Разрешить управление</b><small>Можно оставить выключенным — тогда будет доступен только просмотр экрана.</small></span>
+      </label>
+      <div class="incoming-actions">
+        <button type="button" class="ghost" id="incomingRemoteDecline">Отклонить</button>
+        <button type="button" class="primary slim" id="incomingRemoteAccept">Разрешить просмотр</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="modal" hidden>
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <header class="modal-head">
@@ -300,6 +325,13 @@
             </label>
           </section>
 
+          <section class="settings-group">
+            <h3>Удалённая помощь</h3>
+            <label class="check-row">
+              <input type="checkbox" id="setRemoteAllowed">
+              <span><b>Разрешать удалённую помощь</b><small>Входящий доступ к экрану и управлению — только после вашего явного согласия.</small></span>
+            </label>
+          </section>
           <section class="settings-group">
             <h3>Подключение</h3>
             <label class="check-row">
@@ -435,6 +467,36 @@
             существующие. Отправка доступна только участникам, которые сейчас в сети.</p>
         </div>
 
+        <div id="paneRemote" hidden>
+          <div class="remote-pane">
+            <section class="remote-view" id="remoteView" hidden>
+              <img id="remoteImage" alt="Экран удалённого компьютера" draggable="false" tabindex="0">
+              <div class="remote-empty" id="remotePlaceholder">Ожидание кадра…</div>
+              <div class="remote-status" id="remoteViewStatus"></div>
+            </section>
+            <aside class="remote-sidebar">
+              <section class="settings-group">
+                <h3>Входящие запросы</h3>
+                <div id="remoteIncomingList" class="remote-list"></div>
+              </section>
+              <section class="settings-group">
+                <h3>Состояние сеанса</h3>
+                <div id="remoteSession"></div>
+              </section>
+            </aside>
+          </div>
+          <section class="settings-group remote-start-group">
+            <h3>Запросить помощь</h3>
+            <label class="field compact-field"><span>Участник в сети</span><select id="remotePeer"></select></label>
+            <label class="check-row remote-control-check">
+              <input type="checkbox" id="remoteRequestControl">
+              <span><b>Запросить управление</b><small>Принимающая сторона отдельно разрешит управление или выберет только просмотр.</small></span>
+            </label>
+            <button type="button" class="primary slim" id="remoteStart">Запросить помощь</button>
+          </section>
+          <p class="modal-note">Экран и ввод идут только по сети Nurofen. Принимающая сторона видит запрос, может выключить управление и остановить сеанс в любой момент.</p>
+        </div>
+
         <div id="paneFriends" hidden>
           <section class="settings-group">
             <h3>В этой сети</h3>
@@ -455,6 +517,11 @@
   </div>
 
   <div class="toast" id="toast" hidden></div>
+
+  <!-- Пасхалка: пять кликов по версии в строке состояния. -->
+  <div class="easter-egg" id="easterEgg" hidden aria-hidden="true">
+    <span class="easter-egg-emoji"></span>
+  </div>
 
   <script src="app.js"></script>
 </body>

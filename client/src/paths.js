@@ -9,6 +9,10 @@ export const HELPER_PORT = 39394;
 // allows TCP from 10.66.0.0/16, so no extra rule is needed. A short list keeps
 // the client working if one of the ports is taken by another program.
 export const FILE_PORTS = [39395, 39396, 39397];
+// Remote help uses the same tunnel and the same firewall rule as files: the
+// rule allows every TCP port from 10.66.0.0/16, so a separate port list is
+// enough. Screen frames go host → viewer, input goes viewer → host.
+export const REMOTE_PORTS = [39398, 39399];
 export const TUNNEL_NAME = 'nurofen';
 
 export const dataDir = () => {

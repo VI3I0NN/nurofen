@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; media-src 'self' blob:; img-src 'self' data:">
+<title>Nurofen capture</title>
+<style>
+  html, body { margin: 0; background: #000; overflow: hidden; }
+  video, canvas { display: block; max-width: 100%; }
+</style>
+</head>
+<body>
+<video id="screen" muted playsinline></video>
+<canvas id="frame" width="1280" height="720"></canvas>
+<script>
+/**
+ * Hidden capture page.
+ *
+ * The main process starts a desktop stream here and receives JPEG frames over
+ * IPC. Unlike desktopCapturer.getSources() — which takes ~500 ms per call on
+ * Windows — a running stream delivers frames at the display rate, so the
+ * remote session stays smooth instead of dropping to one frame per second.
+ */
+const { ipcRenderer } = require('electron');
+
+const video = document.getElementById('screen');
+const canvas = document.getElementById('frame');
+const drawing = canvas.getContext('2d', { alpha: false, desynchronized: true });
+
+const DEFAULTS = { maxWidth: 1280, maxHeight: 720, fps: 15, quality: 0.55 };
+
+let options = { ...DEFAULTS };
+let stream = null;
+let running = false;
+let timer = 0;
+
+function reportError(error) {
+  const message = String((error && error.message) || error || 'Захват экрана недоступен.');
+  try {
+    ipcRenderer.send('nurofen-capture:error', message);
+  } catch {
+    // the window is going away
+  }
+}
+
+function stop() {
+  running = false;
+  if (timer) {
+    clearTimeout(timer);
+    timer = 0;
+  }
+  if (stream) {
+    for (const track of stream.getTracks()) {
+      try {
+        track.stop();
+      } catch {
+        // already stopped
+      }
+    }
+    stream = null;
+  }
+  try {
+    video.srcObject = null;
+  } catch {
+    // ignore
+  }
+}
+
+function fit() {
+  const sourceWidth = video.videoWidth || options.maxWidth;
+  const sourceHeight = video.videoHeight || options.maxHeight;
+  const scale = Math.min(options.maxWidth / sourceWidth, options.maxHeight / sourceHeight, 1);
+  const width = Math.max(2, Math.round(sourceWidth * scale));
+  const height = Math.max(2, Math.round(sourceHeight * scale));
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  return { width, height };
+}
+
+function encode(size) {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), 'image/jpeg', options.quality);
+  });
+}
+
+async function start(next) {
+  stop();
+  options = { ...DEFAULTS, ...(next || {}) };
+  const media = await navigator.mediaDevices.getDisplayMedia({
+    audio: false,
+    video: { frameRate: { ideal: 30 } },
+  });
+  stream = media;
+  const track = media.getVideoTracks()[0];
+  track?.addEventListener?.('ended', () => {
+    if (!running) return;
+    stop();
+    reportError('Захват экрана остановлен.');
+  });
+  video.srcObject = media;
+  await video.play();
+  if (!video.videoWidth) {
+    await new Promise((resolve) => {
+      const done = () => resolve();
+      video.addEventListener('loadedmetadata', done, { once: true });
+      setTimeout(done, 1500);
+    });
+  }
+  const size = fit();
+  running = true;
+  const interval = 1000 / Math.max(1, Number(options.fps) || DEFAULTS.fps);
+  let nextAt = performance.now();
+
+  const tick = async () => {
+    if (!running) return;
+    const now = performance.now();
+    if (now < nextAt) {
+      timer = setTimeout(tick, Math.ceil(nextAt - now));
+      return;
+    }
+    nextAt = Math.max(nextAt + interval, now);
+    try {
+      drawing.drawImage(video, 0, 0, size.width, size.height);
+      const blob = await encode(size);
+      if (!running) return;
+      if (blob && blob.size) {
+        const buffer = await blob.arrayBuffer();
+        if (running) ipcRenderer.send('nurofen-capture:frame', buffer, size.width, size.height);
+      }
+    } catch (error) {
+      stop();
+      reportError(error);
+      return;
+    }
+    if (!running) return;
+    timer = setTimeout(tick, Math.max(0, Math.ceil(nextAt - performance.now())));
+  };
+
+  timer = setTimeout(tick, 0);
+}
+
+ipcRenderer.on('nurofen-capture:start', (_event, next) => {
+  start(next).catch((error) => {
+    stop();
+    reportError(error);
+  });
+});
+
+ipcRenderer.on('nurofen-capture:stop', () => stop());
+
+window.addEventListener('beforeunload', stop);
+</script>
+</body>
+</html>

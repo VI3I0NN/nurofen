@@ -15,6 +15,7 @@ const PANES = {
   about: ['paneAbout', 'О программе'],
   files: ['paneFiles', 'Передачи файлов'],
   friends: ['paneFriends', 'Друзья'],
+  remote: ['paneRemote', 'Удалённая помощь'],
 };
 
 // Settings, updates and the other utility panes live in their own windows.
@@ -29,6 +30,7 @@ const TOOL_SIZES = {
   play: [640, 700],
   files: [460, 620],
   friends: [420, 580],
+  remote: [720, 560],
 };
 
 const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
@@ -54,6 +56,11 @@ let mcServerPathDirty = false;
 let filesDirDirty = false;
 let pickedFile = null;
 let fileSending = false;
+let remoteConsentId = null;
+let remoteStreamId = null;
+let remoteFrameShown = false;
+let remoteInputQueue = [];
+let remoteInputTimer = 0;
 
 async function api(route, body) {
   const res = await fetch(route, {
@@ -149,37 +156,6 @@ function fileStatus(transfer) {
   return FILE_STATUS[transfer.status] || transfer.status;
 }
 
-/** Every online participant across all connected networks. */
-function sendPeers() {
-  const list = [];
-  const seen = new Set();
-  for (const net of networks()) {
-    if (net.status !== 'connected') continue;
-    for (const peer of net.peers || []) {
-      if (peer.self || !peer.online) continue;
-      const key = `${net.id}:${peer.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      list.push({
-        networkId: net.id,
-        peerId: peer.id,
-        name: peer.name || peer.ip,
-        ip: peer.ip,
-        networkName: net.network?.name || '',
-      });
-    }
-  }
-  return list;
-}
-
-function friendIds() {
-  return new Set((state?.friends || []).map((friend) => friend.peerId));
-}
-
-function transfers() {
-  return state?.files?.transfers || [];
-}
-
 /* ------------------------------------------------------------------ render */
 
 function networks() {
@@ -217,6 +193,7 @@ function render() {
     renderTransfers();
     renderStatusbar();
   }
+  renderRemoteBanner();
   renderIncoming();
   renderMenu();
   renderModal();
@@ -473,6 +450,9 @@ function renderPeers() {
           <span class="peer-connection"><span class="presence ${online ? 'online' : ''}">${online ? 'В сети' : 'Не в сети'}</span><span class="ping ${pingClass}" title="${escapeHtml(pingTitle)}">${pingText}</span></span>
           <button type="button" class="copy" data-copy="${escapeHtml(peer.ip)}" title="Скопировать адрес"
                   aria-label="Скопировать адрес ${escapeHtml(peer.ip)}">${COPY_ICON}</button>
+          ${online && !peer.self
+            ? `<button type="button" class="copy" data-remote-peer="${escapeHtml(peer.id)}" data-remote-net="${escapeHtml(net.id)}" title="Удалённая помощь" aria-label="Удалённая помощь: ${escapeHtml(peer.name)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M8 10l2.5 2.5L16 7"/></svg></button>`
+            : ''}
         </div>`;
     })
     .join(''));
@@ -493,8 +473,171 @@ function paintPeers(markup) {
 
 const FILE_TERMINAL = new Set(['done', 'declined', 'error', 'cancelled', 'timeout']);
 
+/** Every online participant across all connected networks. */
+function sendPeers() {
+  const list = [];
+  const seen = new Set();
+  for (const net of networks()) {
+    if (net.status !== 'connected') continue;
+    for (const peer of net.peers || []) {
+      if (peer.self || !peer.online) continue;
+      const key = `${net.id}:${peer.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({
+        networkId: net.id,
+        peerId: peer.id,
+        name: peer.name || peer.ip,
+        ip: peer.ip,
+        networkName: net.network?.name || '',
+      });
+    }
+  }
+  return list;
+}
+
+function friendIds() {
+  return new Set((state?.friends || []).map((friend) => friend.peerId));
+}
+
+function transfers() {
+  return state?.files?.transfers || [];
+}
+
 function pendingTransfers() {
   return transfers().filter((item) => item.direction === 'in' && item.status === 'pending');
+}
+
+function remotePeers() {
+  return sendPeers();
+}
+
+let remotePeerOptions = null;
+let remoteMarkup = null;
+
+function remoteSessionMeta(session) {
+  if (!session) return '';
+  const parts = [session.peerName, session.networkName];
+  if (session.status === 'active') {
+    parts.push(session.control ? 'просмотр и управление' : 'только просмотр');
+    if (session.width && session.height) parts.push(`${session.width}×${session.height}`);
+    if (session.fps) parts.push(`${session.fps} кадр/с`);
+    if (session.kbps) parts.push(`${session.kbps} кбит/с`);
+  } else if (session.status === 'connecting') parts.push('подключение…');
+  else if (session.status === 'waiting') parts.push('ожидание согласия…');
+  else if (session.terminal) parts.push(session.error || 'сеанс завершён');
+  return parts.filter(Boolean).join(' · ');
+}
+
+function renderRemote() {
+  const snapshot = state?.remote || {};
+  const peers = remotePeers();
+  const select = $('remotePeer');
+  const options = peers.map((peer) => {
+    const value = `${peer.networkId}|${peer.peerId}`;
+    const label = `${peer.name} · ${peer.ip}${peer.networkName ? ` · ${peer.networkName}` : ''}`;
+    return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+  }).join('');
+  if (options !== remotePeerOptions) {
+    const previous = select.value || REMOTE_PRESET;
+    select.innerHTML = options || '<option value="">Нет участников в сети</option>';
+    if (previous && [...select.options].some((option) => option.value === previous)) select.value = previous;
+    remotePeerOptions = options;
+  }
+  const busy = Boolean(snapshot.viewer && !snapshot.viewer.terminal);
+  select.disabled = !peers.length || busy || !remoteEnabled();
+  $('remoteRequestControl').disabled = select.disabled;
+  $('remoteStart').disabled = select.disabled || !select.value || !snapshot.available;
+  $('remoteStart').textContent = !remoteEnabled()
+    ? 'Удалённая помощь отключена в настройках'
+    : !snapshot.available ? 'Удалённая помощь недоступна'
+      : busy ? 'Сеанс уже идёт'
+        : 'Запросить помощь';
+
+  const incoming = snapshot.incoming || [];
+  $('remoteIncomingList').innerHTML = incoming.length
+    ? incoming.map((request) => `<div class="remote-row"><b>${escapeHtml(request.peerName)}</b><span>${escapeHtml([request.networkName, request.controlRequested ? 'просит управление' : 'просит доступ к экрану'].filter(Boolean).join(' · '))}</span><small>${escapeHtml(request.peerIp || '')}</small></div>`).join('')
+    : '<div class="remote-empty-list">Нет входящих запросов.</div>';
+
+  const session = snapshot.viewer || snapshot.host;
+  const view = $('remoteView');
+  const isViewer = session?.role === 'viewer';
+  const live = isViewer && !session.terminal;
+  view.hidden = false;
+  if (live && session.id !== remoteStreamId) {
+    remoteStreamId = session.id;
+    remoteFrameShown = false;
+    $('remoteImage').src = `/api/remote/stream?id=${encodeURIComponent(session.id)}&at=${Date.now()}`;
+  } else if (!live && remoteStreamId) {
+    remoteStreamId = null;
+    remoteFrameShown = false;
+    $('remoteImage').removeAttribute('src');
+  }
+  $('remoteImage').hidden = !live;
+  $('remoteImage').onload = () => {
+    remoteFrameShown = true;
+    $('remotePlaceholder').hidden = true;
+  };
+  $('remotePlaceholder').hidden = Boolean(live && (remoteFrameShown || session.frames > 0));
+  $('remotePlaceholder').textContent = !session ? 'Экран появится после согласия.'
+    : session.role === 'host' ? (session.terminal ? (session.error || 'Сеанс завершён.')
+      : 'Ваш экран передаётся участнику. Остановите сеанс, чтобы прекратить.')
+      : session.status === 'waiting' ? 'Запрос отправлен — ждём согласия…'
+        : session.status === 'connecting' ? 'Начинаем сеанс…'
+          : session.terminal ? (session.error || 'Сеанс завершён.')
+            : 'Ожидание кадра…';
+  $('remoteViewStatus').textContent = session ? remoteSessionMeta(session) : '';
+
+  const markup = !session
+    ? '<div class="remote-empty-list">Сеанс не активен.</div>'
+    : `<div class="remote-session-card"><b>${escapeHtml(session.role === 'host' ? 'Помощь для' : 'Подключение к')} ${escapeHtml(session.peerName || 'участник')}</b><span>${escapeHtml(remoteSessionMeta(session))}</span>${session.error ? `<small>${escapeHtml(session.error)}</small>` : ''}<div class="remote-actions">${session.active && session.role === 'host' ? `<button type="button" class="ghost slim-ghost" data-remote-control="${escapeHtml(session.id)}" data-enabled="${session.control ? '0' : '1'}">${session.control ? 'Отключить управление' : 'Разрешить управление'}</button>` : ''}${session.canStop ? `<button type="button" class="danger slim-ghost" data-remote-stop="${escapeHtml(session.id)}">Остановить сеанс</button>` : ''}${session.canDismiss ? `<button type="button" class="ghost slim-ghost" data-remote-dismiss="${escapeHtml(session.id)}">Убрать</button>` : ''}</div></div>`;
+  if (markup !== remoteMarkup) {
+    remoteMarkup = markup;
+    $('remoteSession').innerHTML = markup;
+  }
+}
+
+async function flushRemoteInput() {
+  remoteInputTimer = 0;
+  const events = remoteInputQueue.splice(0, 64);
+  const session = state?.remote?.viewer;
+  if (events.length && session?.id) await api('/api/remote/input', { id: session.id, events }).catch(() => {});
+}
+
+function renderRemoteBanner() {
+  const banner = $('remoteBanner');
+  if (!banner) return;
+  const snapshot = state?.remote || {};
+  const session = snapshot.host || snapshot.viewer;
+  if (!session || session.terminal) {
+    banner.hidden = true;
+    return;
+  }
+  const host = session.role === 'host';
+  $('remoteBannerTitle').textContent = host
+    ? `Удалённая помощь: ${session.peerName}`
+    : `Подключение к ${session.peerName}`;
+  $('remoteBannerMeta').textContent = remoteSessionMeta(session);
+  const control = $('remoteBannerControl');
+  control.hidden = !host || !session.controlRequested || !session.active;
+  control.textContent = session.control ? 'Запретить управление' : 'Разрешить управление';
+  $('remoteBannerOpen').hidden = !snapshot.viewer;
+  banner.hidden = false;
+}
+
+function remoteCurrentSession() {
+  const snapshot = state?.remote || {};
+  return snapshot.host || snapshot.viewer || null;
+}
+
+async function remoteAction(route, body) {
+  const result = await api(route, body);
+  if (!result?.ok && result?.error) toast(result.error);
+  await poll();
+  renderModal();
+  renderRemoteBanner();
+  renderIncoming();
+  return result;
 }
 
 function transferMeta(transfer) {
@@ -575,7 +718,25 @@ function renderTransfers() {
 function renderIncoming() {
   const box = $('incoming');
   if (!box) return;
+  const remoteIncoming = state?.remote?.incoming || [];
   const list = pendingTransfers();
+  if (remoteIncoming.length) {
+    const request = remoteIncoming[0];
+    $('incomingRemoteTitle').textContent = `${request.peerName} просит подключиться`;
+    $('incomingRemoteMeta').textContent = [request.networkName, request.controlRequested ? 'запрошено управление' : 'только экран'].filter(Boolean).join(' · ');
+    if (remoteConsentId !== request.id) {
+      remoteConsentId = request.id;
+      $('incomingRemoteControl').checked = false;
+    }
+    $('incomingRemoteControl').disabled = !request.controlRequested;
+    $('incomingRemoteAccept').textContent = $('incomingRemoteControl').checked
+      ? 'Разрешить управление'
+      : 'Разрешить просмотр';
+    $('incomingRemote').hidden = false;
+  } else {
+    remoteConsentId = null;
+    $('incomingRemote').hidden = true;
+  }
   if (!list.length) {
     box.hidden = true;
     return;
@@ -615,6 +776,8 @@ const FILE_PRESET = (() => {
   const peer = params.get('peer');
   return net && peer ? `${net}|${peer}` : '';
 })();
+
+const REMOTE_PRESET = FILE_PRESET;
 
 let filePeerOptions = null;
 let fileListMarkup = null;
@@ -917,11 +1080,46 @@ function renderStatusbar() {
   const version = state.version ? `v${state.version}${helper}` : '';
   const available = Boolean(state.update?.available);
   right.innerHTML = available
-    ? `<span class="status-version">${escapeHtml(version)}</span><button type="button" class="update-note" data-update title="Открыть обновления">доступно обновление</button>`
-    : `<span class="status-version">${escapeHtml(version)}</span>`;
+    ? `<span class="status-version" data-version>${escapeHtml(version)}</span><button type="button" class="update-note" data-update title="Открыть обновления">доступно обновление</button>`
+    : `<span class="status-version" data-version>${escapeHtml(version)}</span>`;
   right.title = available
     ? 'Доступно обновление — нажмите, чтобы открыть'
     : state.helperVersion ? `Служба-помощник: ${state.helperVersion}` : '';
+}
+
+/* --------------------------------------------------------------- easter egg */
+
+let versionClicks = 0;
+let versionClickTimer = 0;
+let eggTimer = 0;
+
+// Five quick clicks on the version number in the status bar. Nothing depends
+// on it, it is just a small joke for people who read version strings.
+function countVersionClick() {
+  if (TOOL_KIND) return;
+  versionClicks += 1;
+  clearTimeout(versionClickTimer);
+  versionClickTimer = setTimeout(() => {
+    versionClicks = 0;
+  }, 2500);
+  if (versionClicks < 5) return;
+  versionClicks = 0;
+  clearTimeout(versionClickTimer);
+  showEgg();
+}
+
+function showEgg() {
+  const egg = $('easterEgg');
+  if (!egg) return;
+  clearTimeout(eggTimer);
+  egg.classList.remove('show');
+  egg.hidden = false;
+  void egg.offsetWidth; // restart the CSS animation
+  egg.classList.add('show');
+  eggTimer = setTimeout(() => {
+    egg.hidden = true;
+    egg.classList.remove('show');
+  }, 2000);
 }
 
 function renderMenu() {
@@ -979,6 +1177,7 @@ function renderModal() {
   else if (modalKind === 'about') renderAbout();
   else if (modalKind === 'files') renderFiles();
   else if (modalKind === 'friends') renderFriends();
+  else if (modalKind === 'remote') renderRemote();
 }
 
 function renderSettings() {
@@ -986,6 +1185,7 @@ function renderSettings() {
   $('setCompact').checked = settings.compactPeers === true;
   $('setAutoConnect').checked = settings.autoConnect !== false;
   $('setNotify').checked = settings.notifyWorlds !== false;
+  $('setRemoteAllowed').checked = settings.remoteAllowed !== false;
   const net = activeNetwork();
   $('setDirect').checked = Boolean(net?.direct);
   $('setDirect').disabled = !net;
@@ -1020,9 +1220,16 @@ function renderSettings() {
 async function saveSettings(patch = {}) {
   const settings = { ...(state.settings || {}), ...patch };
   const result = await api('/api/settings', settings);
-  if (result?.ok && state) state.settings = result.settings;
+  if (result?.ok && state) {
+    state.settings = result.settings;
+    if (state.remote) state.remote.allowed = result.settings.remoteAllowed !== false;
+  }
   render();
   renderModal();
+}
+
+function remoteEnabled() {
+  return state?.settings?.remoteAllowed !== false && state?.remote?.allowed !== false;
 }
 
 async function saveDirect(value) {
@@ -1247,6 +1454,7 @@ function updateJoinMode() {
 $('powerBtn').addEventListener('click', toggleConnection);
 $('editNickBtn').addEventListener('click', () => openTool('nickname'));
 $('filesBtn').addEventListener('click', () => openTool('files'));
+$('remoteBtn').addEventListener('click', () => openTool('remote'));
 $('friendsBtn').addEventListener('click', () => openTool('friends'));
 $('addNetBtn').addEventListener('click', openJoin);
 $('joinBack').addEventListener('click', closeJoin);
@@ -1619,6 +1827,7 @@ function closeMenus() {
 
 document.addEventListener('click', (event) => {
   if (!event.target.closest('.menu')) closeMenus();
+  if (event.target.closest('[data-version]')) countVersionClick();
 });
 
 document.querySelectorAll('[data-action]').forEach((button) => {
@@ -1636,6 +1845,7 @@ document.querySelectorAll('[data-action]').forEach((button) => {
     else if (action === 'play') openTool('play');
     else if (action === 'files') openTool('files');
     else if (action === 'friends') openTool('friends');
+    else if (action === 'remote') openTool('remote');
     else if (action === 'leave') leaveNetwork();
     else if (action === 'quit') api('/api/quit');
   });
@@ -1719,6 +1929,7 @@ $('upForceHelper').addEventListener('click', () => forceHelperUpdate($('upForceH
 $('setCompact').addEventListener('change', (event) => saveSettings({ compactPeers: event.target.checked }));
 $('setAutoConnect').addEventListener('change', (event) => saveSettings({ autoConnect: event.target.checked }));
 $('setNotify').addEventListener('change', (event) => saveSettings({ notifyWorlds: event.target.checked }));
+$('setRemoteAllowed').addEventListener('change', (event) => saveSettings({ remoteAllowed: event.target.checked }));
 $('setDirect').addEventListener('change', (event) => saveDirect(event.target.checked));
 $('setNickname').addEventListener('click', () => openTool('nickname'));
 
@@ -1868,6 +2079,212 @@ document.addEventListener('keydown', (event) => {
   else if (joinOpen) closeJoin();
 });
 
+/* ------------------------------------------------------------------ remote */
+
+$('remoteStart').addEventListener('click', async () => {
+  const target = $('remotePeer').value;
+  if (!target) return;
+  const [networkId, peerId] = target.split('|');
+  const button = $('remoteStart');
+  button.disabled = true;
+  const result = await api('/api/remote/start', {
+    networkId,
+    peerId,
+    control: $('remoteRequestControl').checked,
+  }).catch(() => null);
+  if (!result?.ok) {
+    toast(result?.error || 'Не удалось запросить помощь');
+    button.disabled = false;
+    return;
+  }
+  $('remoteRequestControl').checked = false;
+  await poll();
+  renderRemote();
+});
+
+$('incomingRemoteControl').addEventListener('change', () => {
+  $('incomingRemoteAccept').textContent = $('incomingRemoteControl').checked
+    ? 'Разрешить управление'
+    : 'Разрешить просмотр';
+});
+
+$('incomingRemoteAccept').addEventListener('click', async () => {
+  const request = (state?.remote?.incoming || [])[0];
+  if (!request) return;
+  $('incomingRemoteAccept').disabled = true;
+  try {
+    await remoteAction('/api/remote/accept', { id: request.id, control: $('incomingRemoteControl').checked });
+  } finally {
+    $('incomingRemoteAccept').disabled = false;
+  }
+});
+
+$('incomingRemoteDecline').addEventListener('click', async () => {
+  const request = (state?.remote?.incoming || [])[0];
+  if (!request) return;
+  await remoteAction('/api/remote/decline', { id: request.id });
+});
+
+$('remoteBannerOpen').addEventListener('click', () => openTool('remote'));
+
+$('remoteBannerStop').addEventListener('click', () => {
+  const session = remoteCurrentSession();
+  if (session) remoteAction('/api/remote/stop', { id: session.id });
+});
+
+$('remoteBannerControl').addEventListener('click', () => {
+  const session = state?.remote?.host;
+  if (session) remoteAction('/api/remote/control', { id: session.id, control: !session.control });
+});
+
+document.addEventListener('click', (event) => {
+  const action = event.target.closest('[data-remote-stop],[data-remote-dismiss],[data-remote-control]');
+  if (!action) {
+    const peer = event.target.closest('[data-remote-peer]');
+    if (!peer) return;
+    openTool('remote', { net: peer.dataset.remoteNet, peer: peer.dataset.remotePeer });
+    return;
+  }
+  if (action.dataset.remoteStop) {
+    remoteAction('/api/remote/stop', { id: action.dataset.remoteStop });
+    return;
+  }
+  if (action.dataset.remoteDismiss) {
+    remoteAction('/api/remote/dismiss', { id: action.dataset.remoteDismiss });
+    return;
+  }
+  if (action.dataset.remoteControl) {
+    remoteAction('/api/remote/control', {
+      id: action.dataset.remoteControl,
+      control: action.dataset.enabled === '1',
+    });
+  }
+});
+
+const REMOTE_VK = {
+  Backspace: 8,
+  Tab: 9,
+  Enter: 13,
+  Shift: 16,
+  Control: 17,
+  Alt: 18,
+  Pause: 19,
+  CapsLock: 20,
+  Escape: 27,
+  ' ': 32,
+  PageUp: 33,
+  PageDown: 34,
+  End: 35,
+  Home: 36,
+  ArrowLeft: 37,
+  ArrowUp: 38,
+  ArrowRight: 39,
+  ArrowDown: 40,
+  Insert: 45,
+  Delete: 46,
+  Meta: 91,
+  ContextMenu: 93,
+};
+
+const remoteTyped = new Map();
+
+function remoteImageRect() {
+  const image = $('remoteImage');
+  const rect = image.getBoundingClientRect();
+  const session = state?.remote?.viewer;
+  const naturalWidth = image.naturalWidth || session?.width || 1280;
+  const naturalHeight = image.naturalHeight || session?.height || 720;
+  const scale = Math.min(rect.width / naturalWidth, rect.height / naturalHeight);
+  const width = naturalWidth * scale;
+  const height = naturalHeight * scale;
+  return {
+    left: rect.left + (rect.width - width) / 2,
+    top: rect.top + (rect.height - height) / 2,
+    width,
+    height,
+  };
+}
+
+function remotePoint(event) {
+  const box = remoteImageRect();
+  if (!box.width || !box.height) return null;
+  return {
+    x: Math.max(0, Math.min(1, (event.clientX - box.left) / box.width)),
+    y: Math.max(0, Math.min(1, (event.clientY - box.top) / box.height)),
+  };
+}
+
+function sendRemoteEvents(events) {
+  const session = state?.remote?.viewer;
+  if (!session?.active || !session.control || !events.length) return;
+  remoteInputQueue.push(...events);
+  if (!remoteInputTimer) remoteInputTimer = setTimeout(flushRemoteInput, 30);
+}
+
+$('remoteImage').addEventListener('mousemove', (event) => {
+  const point = remotePoint(event);
+  if (point) sendRemoteEvents([{ t: 'm', x: point.x, y: point.y }]);
+});
+
+$('remoteImage').addEventListener('mousedown', (event) => {
+  const point = remotePoint(event);
+  if (!point) return;
+  const button = event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left';
+  sendRemoteEvents([{ t: 'm', x: point.x, y: point.y }, { t: 'b', b: button, d: true }]);
+  event.preventDefault();
+});
+
+$('remoteImage').addEventListener('mouseup', (event) => {
+  const point = remotePoint(event);
+  const button = event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left';
+  sendRemoteEvents([...(point ? [{ t: 'm', x: point.x, y: point.y }] : []), { t: 'b', b: button, d: false }]);
+  event.preventDefault();
+});
+
+$('remoteImage').addEventListener('contextmenu', (event) => event.preventDefault());
+
+$('remoteImage').addEventListener('wheel', (event) => {
+  const session = state?.remote?.viewer;
+  if (!session?.active || !session.control) return;
+  event.preventDefault();
+  const delta = Math.max(-2400, Math.min(2400, Math.round(-event.deltaY)));
+  if (delta) sendRemoteEvents([{ t: 'w', d: delta }]);
+}, { passive: false });
+
+function remoteKeyDown(event) {
+  const session = state?.remote?.viewer;
+  if (!session?.active || !session.control) return;
+  const key = event.key;
+  if (!key || key === 'Dead' || key === 'Unidentified' || key === 'Process') return;
+  event.preventDefault();
+  const id = event.code || key;
+  const printable = key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey;
+  if (printable) {
+    remoteTyped.set(id, 'u');
+    sendRemoteEvents([{ t: 'u', c: key.codePointAt(0) }]);
+    return;
+  }
+  const vk = event.keyCode || REMOTE_VK[key] || 0;
+  if (!vk) return;
+  remoteTyped.set(id, 'k');
+  sendRemoteEvents([{ t: 'k', vk, d: true }]);
+}
+
+function remoteKeyUp(event) {
+  const session = state?.remote?.viewer;
+  if (!session?.active || !session.control) return;
+  const id = event.code || event.key;
+  const mode = remoteTyped.get(id);
+  remoteTyped.delete(id);
+  if (!mode || mode === 'u') return;
+  const vk = event.keyCode || REMOTE_VK[event.key] || 0;
+  event.preventDefault();
+  if (vk) sendRemoteEvents([{ t: 'k', vk, d: false }]);
+}
+
+$('remoteImage').addEventListener('keydown', remoteKeyDown);
+$('remoteImage').addEventListener('keyup', remoteKeyUp);
+
 /* -------------------------------------------------------------------- poll */
 
 async function poll() {
@@ -1901,6 +2318,7 @@ if (TOOL_KIND === 'play') {
   $('playExeRow').hidden = true;
 } else if (TOOL_KIND && PANES[TOOL_KIND]) {
   document.body.classList.add('tool-window');
+  document.body.dataset.tool = TOOL_KIND;
   document.title = `${PANES[TOOL_KIND][1]} — Nurofen`;
   openModal(TOOL_KIND);
 }

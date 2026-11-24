@@ -14,6 +14,7 @@ const DEFAULT = {
     minecraftDir: '',
     minecraftServerDir: '',
     filesDir: '',
+    remoteAllowed: true,
   },
   friends: [],
   networks: [],

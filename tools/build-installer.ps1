@@ -13,7 +13,7 @@
 param(
   [string]$Server = 'http://201.58.187.214:8787',
   [string]$Output = '',
-  [string]$Notes = 'Nurofen Play: сборка и мир в один клик — Prism, PineconeMC, TLauncher Legacy.'
+  [string]$Notes = 'Удалённая помощь: экран участника и управление с его согласия. Пасхалка в строке версии.'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,6 +24,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 $utf8Bom = New-Object System.Text.UTF8Encoding($true)
 foreach ($rel in @(
   'client\install.ps1', 'client\uninstall.ps1', 'client\src\tray.ps1', 'client\src\focus.ps1',
+  'client\src\input-agent.ps1',
   'tools\installer.iss', 'tools\installer-notes.txt'
 )) {
   $path = Join-Path $repo $rel
