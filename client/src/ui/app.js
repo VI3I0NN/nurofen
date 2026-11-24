@@ -234,7 +234,7 @@ function renderHero() {
   button.setAttribute('aria-pressed', status === 'connected' ? 'true' : 'false');
   button.title = status === 'connected' ? 'Отключить сеть' : 'Включить сеть';
 
-  $('powerLabel').textContent = { connected: 'ON', connecting: '…', error: '!', idle: 'OFF' }[status] || 'OFF';
+  $('powerLabel').textContent = { connected: 'Вкл', connecting: '…', error: '!', idle: 'Выкл' }[status] || 'Выкл';
   $('selfName').textContent = net.self?.name || state.deviceName || 'Устройство';
   $('selfIp').textContent = status === 'connecting' ? 'подключение…' : net.self?.ip || '—';
 
