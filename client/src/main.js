@@ -260,6 +260,9 @@ function runtimeFor(id) {
       directTries: new Map(),
       directBlocked: new Map(),
       directAttempts: new Map(),
+      directActive: new Set(),
+      directFailures: new Map(),
+      directTriedEndpoint: new Map(),
       directApplied: false,
       directBusy: false,
       connectedAt: null,
@@ -402,10 +405,6 @@ function directEndpoints(peer) {
   }
   add(peer.endpoint);
   return found;
-}
-
-function directEndpoint(peer) {
-  return directEndpoints(peer)[0] || null;
 }
 
 function candidatePorts(member) {
@@ -600,6 +599,9 @@ async function disconnect(id, { manual = false } = {}) {
   state.directTries.clear();
   state.directBlocked.clear();
   state.directAttempts.clear();
+  state.directActive.clear();
+  state.directFailures.clear();
+  state.directTriedEndpoint.clear();
   if (member) await Promise.race([offline(member).catch(() => {}), sleep(1500)]);
   pushLog('info', member ? `«${member.network.name}»: отключено` : 'отключено');
 
@@ -698,12 +700,15 @@ async function pingPeers(member) {
 
 /* -------------------------------------------------------- direct (beta) P2P */
 
-const DIRECT_GRACE_MS = 8 * 1000;
-const DIRECT_ROTATE_MS = 4 * 1000;
-const DIRECT_RETRY_MS = 30 * 60 * 1000;
-// WireGuard rekeys roughly every two minutes, so a handshake older than a
-// minute does not mean the link is dead. The helper uses the same window.
-const DIRECT_ALIVE_MS = 180 * 1000;
+// A probe never takes traffic off the hub (the helper only routes directly
+// after a handshake), so a longer window is safe — and both sides need to probe
+// at the same time for NAT hole punching to work.
+const DIRECT_PROBE_MS = 15 * 1000;
+const DIRECT_ENDPOINT_MS = 5 * 1000;
+// Retries keep converging with the other side instead of freezing for half an
+// hour after one unlucky attempt.
+const DIRECT_RETRY_MIN_MS = 20 * 1000;
+const DIRECT_RETRY_MAX_MS = 2 * 60 * 1000;
 
 async function clearDirect(member) {
   const state = runtimeFor(member.id);
@@ -717,6 +722,9 @@ async function clearDirect(member) {
   state.directModes = {};
   state.directTries.clear();
   state.directAttempts.clear();
+  state.directActive.clear();
+  state.directFailures.clear();
+  state.directTriedEndpoint.clear();
 }
 
 /** Oldest helper build that knows how to add a direct peer. */
@@ -738,9 +746,12 @@ function staleHelper(peer) {
 }
 
 /**
- * Optional beta feature: traffic to peers goes straight to their public
- * endpoint instead of through the hub. Only peers that enabled it too are
- * tried; after a failed handshake the peer is removed and the hub is used.
+ * Optional beta feature: traffic to peers goes straight to their endpoint
+ * instead of through the hub. Only peers that enabled it too are tried. The
+ * helper keeps the hub route until a handshake proves the direct path works,
+ * so a failed attempt costs nothing; failed peers are retried with a short
+ * backoff instead of being parked for half an hour, which used to leave the two
+ * sides probing at different times forever.
  */
 async function syncDirect(member) {
   const state = runtimeFor(member.id);
@@ -752,54 +763,39 @@ async function syncDirect(member) {
   state.directBusy = true;
   try {
     const now = Date.now();
-    const candidates = state.peers.filter((peer) => (
-      !peer.self && peer.online && peer.direct && peer.publicKey && peer.ip && directEndpoint(peer)
-    ));
     const modes = {};
     const wanted = [];
-    for (const peer of candidates) {
+    const candidates = new Set();
+    for (const peer of state.peers) {
+      if (peer.self || !peer.online || !peer.direct || !peer.publicKey || !peer.ip) continue;
+      const endpoints = directEndpoints(peer);
+      if (!endpoints.length) continue;
+      candidates.add(peer.publicKey);
+      // A new address is a new chance: forget an earlier failure.
+      const tried = state.directTriedEndpoint.get(peer.publicKey);
+      if (tried && tried !== endpoints[0]) {
+        state.directBlocked.delete(peer.publicKey);
+        state.directFailures.delete(peer.publicKey);
+        state.directTries.delete(peer.publicKey);
+        state.directAttempts.delete(peer.publicKey);
+      }
+      if (state.directActive.has(peer.publicKey)) {
+        modes[peer.ip] = 'direct';
+        wanted.push({ publicKey: peer.publicKey, ip: peer.ip, endpoint: endpoints[0] });
+        continue;
+      }
       if ((state.directBlocked.get(peer.publicKey) || 0) > now) {
         modes[peer.ip] = 'relay';
         continue;
       }
-      wanted.push(peer);
-      modes[peer.ip] = 'trying';
-    }
-    if (!wanted.length) {
-      if (state.directApplied) {
-        await syncDirectPeers({ name: member.interface, hubPublicKey: member.server?.publicKey, peers: [] }).catch(() => {});
-        state.directApplied = false;
-      }
-      state.directModes = modes;
-      state.directTries.clear();
-      state.directAttempts.clear();
-      return;
-    }
-    const endpointsByKey = new Map(wanted.map((peer) => [peer.publicKey, directEndpoints(peer)]));
-    const result = await syncDirectPeers({
-      name: member.interface,
-      hubPublicKey: member.server?.publicKey,
-      peers: wanted.map((peer) => {
-        const endpoints = endpointsByKey.get(peer.publicKey) || [];
-        const attempt = state.directAttempts.get(peer.publicKey) || { index: 0, since: now };
-        return { publicKey: peer.publicKey, ip: peer.ip, endpoint: endpoints[attempt.index % endpoints.length] };
-      }),
-    });
-    state.directApplied = true;
-    const live = new Map((result.peers || []).map((peer) => [peer.publicKey, peer]));
-    for (const peer of wanted) {
-      const info = live.get(peer.publicKey);
-      const handshakeAt = info?.latestHandshake ? info.latestHandshake * 1000 : 0;
-      const first = state.directTries.get(peer.publicKey) || now;
-      state.directTries.set(peer.publicKey, first);
-      const endpoints = endpointsByKey.get(peer.publicKey) || [];
-      const attempt = state.directAttempts.get(peer.publicKey) || { index: 0, since: first };
-      if (handshakeAt && now - handshakeAt < DIRECT_ALIVE_MS) {
-        modes[peer.ip] = 'direct';
-        state.directTries.delete(peer.publicKey);
-        state.directAttempts.delete(peer.publicKey);
-      } else if (now - first > Math.max(DIRECT_GRACE_MS, endpoints.length * DIRECT_ROTATE_MS)) {
-        state.directBlocked.set(peer.publicKey, now + DIRECT_RETRY_MS);
+      const started = state.directTries.get(peer.publicKey) || now;
+      state.directTries.set(peer.publicKey, started);
+      const window = Math.max(DIRECT_PROBE_MS, endpoints.length * DIRECT_ENDPOINT_MS);
+      if (now - started >= window) {
+        const failures = (state.directFailures.get(peer.publicKey) || 0) + 1;
+        state.directFailures.set(peer.publicKey, failures);
+        state.directBlocked.set(peer.publicKey, now + Math.min(DIRECT_RETRY_MAX_MS, DIRECT_RETRY_MIN_MS * 2 ** (failures - 1)));
+        state.directTriedEndpoint.set(peer.publicKey, endpoints[0]);
         state.directTries.delete(peer.publicKey);
         state.directAttempts.delete(peer.publicKey);
         if (staleHelper(peer)) {
@@ -807,21 +803,63 @@ async function syncDirect(member) {
           pushLog('warn', `«${member.network.name}»: у ${peer.name} старая служба (${peer.helperVersion} при клиенте ${peer.clientVersion}) — перезапустите ПК`);
         } else {
           modes[peer.ip] = 'relay';
-          pushLog('warn', `«${member.network.name}»: прямой канал с ${peer.name} не поднялся, трафик идёт через сервер`);
+          if (failures === 1) {
+            pushLog('info', `«${member.network.name}»: прямой канал с ${peer.name} не поднялся, трафик идёт через сервер`);
+          }
         }
-      } else {
-        if (endpoints.length > 1 && now - attempt.since > DIRECT_ROTATE_MS) {
-          state.directAttempts.set(peer.publicKey, { index: attempt.index + 1, since: now });
-        } else if (!state.directAttempts.has(peer.publicKey)) {
-          state.directAttempts.set(peer.publicKey, attempt);
-        }
-        modes[peer.ip] = 'trying';
+        continue;
       }
+      let attempt = state.directAttempts.get(peer.publicKey);
+      if (!attempt) {
+        attempt = { index: 0, since: started };
+        state.directAttempts.set(peer.publicKey, attempt);
+      } else if (endpoints.length > 1 && now - attempt.since > DIRECT_ENDPOINT_MS) {
+        attempt = { index: attempt.index + 1, since: now };
+        state.directAttempts.set(peer.publicKey, attempt);
+      }
+      wanted.push({
+        publicKey: peer.publicKey,
+        ip: peer.ip,
+        endpoint: endpoints[attempt.index % endpoints.length],
+      });
+      modes[peer.ip] = 'trying';
     }
     for (const key of [...state.directTries.keys()]) {
-      if (!wanted.some((peer) => peer.publicKey === key)) {
+      if (!candidates.has(key)) {
         state.directTries.delete(key);
         state.directAttempts.delete(key);
+      }
+    }
+    if (!wanted.length && !state.directApplied) {
+      state.directModes = modes;
+      return;
+    }
+    const result = await syncDirectPeers({
+      name: member.interface,
+      hubPublicKey: member.server?.publicKey,
+      peers: wanted,
+    });
+    state.directApplied = wanted.length > 0;
+    const live = new Set();
+    for (const info of result?.peers || []) {
+      if (!info.active || !info.alive) continue;
+      live.add(info.publicKey);
+      state.directBlocked.delete(info.publicKey);
+      state.directFailures.delete(info.publicKey);
+      state.directTries.delete(info.publicKey);
+      state.directAttempts.delete(info.publicKey);
+      state.directTriedEndpoint.delete(info.publicKey);
+    }
+    state.directActive = live;
+    const previous = state.directModes || {};
+    for (const peer of state.peers) {
+      if (live.has(peer.publicKey)) {
+        modes[peer.ip] = 'direct';
+        if (previous[peer.ip] !== 'direct') {
+          pushLog('ok', `«${member.network.name}»: прямой канал с ${peer.name} поднят`);
+        }
+      } else if (modes[peer.ip] === 'direct') {
+        modes[peer.ip] = 'trying';
       }
     }
     state.directModes = modes;
@@ -843,6 +881,9 @@ async function setDirect(id, value) {
   state.directBlocked.clear();
   state.directTries.clear();
   state.directAttempts.clear();
+  state.directActive.clear();
+  state.directFailures.clear();
+  state.directTriedEndpoint.clear();
   if (!member.direct) await clearDirect(member);
   if (joined(member) && state.status === 'connected') {
     try {

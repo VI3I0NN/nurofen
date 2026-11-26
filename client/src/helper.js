@@ -133,6 +133,10 @@ export async function ensureFirewall(ports = []) {
   const list = [...new Set((Array.isArray(ports) ? ports : [])
     .map(Number)
     .filter((port) => Number.isInteger(port) && port > 0 && port < 65536))];
+  // The helper starts without the client's profile, so it has no ports to
+  // offer. Deleting the rule here used to remove direct connections until the
+  // app was opened again; leave the existing rule alone instead.
+  if (!list.length) return results;
   await run('netsh.exe', ['advfirewall', 'firewall', 'delete', 'rule', 'name=Nurofen-Direct-UDP']);
   if (list.length) {
     const result = await run('netsh.exe', [
@@ -205,16 +209,55 @@ async function dumpPeers(name) {
   if (!NAME_RE.test(String(name || ''))) throw new Error('bad tunnel name');
   const exe = findAwgCli();
   if (!exe) throw new Error('awg_missing');
-  const result = await run(exe, ['show', name, 'dump']);
+  let result = await run(exe, ['show', name, 'dump']);
+  if (!result.ok) {
+    // Right after a port switch the service may still be starting.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    result = await run(exe, ['show', name, 'dump']);
+  }
   if (!result.ok) throw new Error((result.stderr || result.stdout || 'awg show failed').toString().slice(0, 300));
   return parseDump(result.stdout);
 }
 
 /**
- * Beta P2P: tunnel traffic to selected peers goes straight to their public
- * endpoint instead of through the hub. The hub peer is never touched; a peer
- * without a handshake is removed by the caller and traffic falls back to hub.
+ * Beta P2P: tunnel traffic to selected peers goes straight to their endpoint
+ * instead of through the hub.
+ *
+ * Two rules keep the channel from breaking the connection while it is being
+ * established:
+ *
+ * 1. A peer is routed directly only after WireGuard has a fresh handshake with
+ *    it. Until then the peer entry exists with a reserved probe address, so the
+ *    real traffic keeps going through the hub. The old version moved the peer's
+ *    10.66.x.y/32 to a dead endpoint right away, which blackholed the friend for
+ *    the whole attempt — that is what looked like "the connection drops".
+ * 2. A working session is never re-pointed at the address the hub observed.
+ *    WireGuard roams on its own, and re-applying the hub's view every few
+ *    seconds used to tear the direct link down again and again.
+ *
+ * The hub peer is never touched; a peer without a handshake stays on the hub.
  */
+const DIRECT_ALIVE_S = 150; // WireGuard rekeys about every two minutes
+const PROBE_PREFIX = '192.0.2.'; // TEST-NET-1: reserved, never routable
+
+/** Stable per-peer probe address so two probes never fight over one /32. */
+export function probeAllowedIp(publicKey) {
+  let hash = 0;
+  for (const char of String(publicKey || '')) hash = (hash * 33 + char.charCodeAt(0)) % 250;
+  return `${PROBE_PREFIX}${hash + 1}/32`;
+}
+
+/** What to apply for one peer, given its current tunnel entry. */
+export function directPlan(current, peer, now) {
+  const live = Boolean(current && current.latestHandshake > 0 && now - current.latestHandshake < DIRECT_ALIVE_S);
+  const route = live ? `${peer.ip}/32` : probeAllowedIp(peer.publicKey);
+  const endpoint = live ? null : peer.endpoint;
+  const patch = !current
+    || current.allowedIps !== route
+    || (endpoint !== null && current.endpoint !== endpoint);
+  return { live, route, keepalive: live ? 25 : 2, endpoint, patch };
+}
+
 async function directPeers({ name, hubPublicKey, peers }) {
   if (!NAME_RE.test(String(name || ''))) throw new Error('bad tunnel name');
   if (!hubPublicKey) throw new Error('hub_key_required');
@@ -232,29 +275,39 @@ async function directPeers({ name, hubPublicKey, peers }) {
       await run(exe, ['set', name, 'peer', peer.publicKey, 'remove']);
     }
   }
+
   const now = Date.now() / 1000;
   for (const peer of wanted) {
-    // A working direct session roams on its own; re-applying the endpoint
-    // seen by the hub every few seconds would keep resetting it.
-    const current = known.get(peer.publicKey);
-    const alive = current
-      && current.latestHandshake > 0
-      && now - current.latestHandshake < 180
-      && current.allowedIps === `${peer.ip}/32`
-      && current.endpoint === peer.endpoint;
-    if (alive) continue;
-    const result = await run(exe, [
-      'set', name, 'peer', peer.publicKey,
-      'allowed-ips', `${peer.ip}/32`,
-      'persistent-keepalive', '25',
-      'endpoint', peer.endpoint,
-    ]);
+    const plan = directPlan(known.get(peer.publicKey), peer, now);
+    if (!plan.patch) continue;
+    const args = ['set', name, 'peer', peer.publicKey,
+      'allowed-ips', plan.route,
+      'persistent-keepalive', String(plan.keepalive)];
+    if (plan.endpoint) args.push('endpoint', plan.endpoint);
+    const result = await run(exe, args);
     if (!result.ok) {
       logLine(`direct ${peer.ip}: ${(result.stderr || result.stdout || result.code || '').toString().slice(0, 200)}`);
     }
   }
+
   const after = await dumpPeers(name);
-  return { peers: after.filter((peer) => peer.publicKey !== hubPublicKey) };
+  const seconds = Date.now() / 1000;
+  return {
+    peers: after
+      .filter((peer) => peer.publicKey !== hubPublicKey)
+      .map((peer) => {
+        const target = wanted.find((item) => item.publicKey === peer.publicKey);
+        const alive = peer.latestHandshake > 0 && seconds - peer.latestHandshake < DIRECT_ALIVE_S;
+        return {
+          publicKey: peer.publicKey,
+          ip: target?.ip || '',
+          endpoint: peer.endpoint,
+          latestHandshake: peer.latestHandshake,
+          active: Boolean(target && alive && peer.allowedIps === `${target.ip}/32`),
+          alive,
+        };
+      }),
+  };
 }
 
 export function startHelper(log = console, version = '') {
